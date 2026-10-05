@@ -1,0 +1,110 @@
+# ChimpFlow
+
+![ChimpFlow banner — a chimp with a megaphone on a cliff over a vast jungle](resources/chimpflow-banner.png)
+
+Local voice service for Linux — TTS (and soon STT) behind API-key auth, with a
+dark web admin UI. Built on **OmniNet** (C++23 HTTP/sqlite) with **audio.cpp**
+as the speech engine and **PocketTTS** as the first model.
+
+```
+client ──HTTP──▶ ChimpFlow (OmniNet) ──HTTP──▶ audio.cpp server ──▶ PocketTTS (Vulkan)
+                  API keys, scopes,        OpenAI-compatible
+                  WebUI, sqlite           /v1/audio/speech
+```
+
+## Features
+
+- **OpenAI-compatible TTS**: `POST /v1/audio/speech` (model, input, voice, response_format)
+- **Scoped API keys**: `tts` / `stt` / `admin` scopes, hashed at rest in sqlite,
+  per-key use counts, revocation, expiration support
+- **WebUI** at `/` — key management, TTS test bench (26 voices), engine status
+- **Bootstrap admin key** printed once on first run
+
+## Build
+
+Requires: GCC 13+ (C++23), CMake 3.20+, OpenSSL, SQLite3. OmniNet is expected at
+`/projects/Websites/OmniNet` (override with `-DOMNINET_DIR=...`); if its
+prebuilt `libOmniNet.a` is missing, OmniNet is built from source automatically.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+ln -sfn ../web build/web    # serve the WebUI from next to the binary
+./build/chimpflow           # run from anywhere; db lands in the CWD
+```
+
+## Install (user-level service, no root)
+
+```bash
+bash install.sh
+```
+
+Builds and installs as a **systemd user service** running as you: binary +
+WebUI to `~/.local/lib/chimpflow/`, data (sqlite + `ADMIN_KEY`) to
+`~/.local/share/chimpflow/`. Enabled at boot via `loginctl enable-linger`
+— starts without login, restarts on failure, logs to the user journal.
+The bootstrap admin key is printed once and saved to
+`~/.local/share/chimpflow/ADMIN_KEY` (mode 600). Manage with
+`systemctl --user {status,restart,stop} chimpflow` and
+`journalctl --user -u chimpflow -f`.
+
+## Run (dev, from the repo)
+
+```bash
+./build/chimpflow
+```
+
+On first start it creates `data/chimpflow.db` (created automatically) and prints
+a bootstrap admin key
+(**shown once** — save it). Then open http://127.0.0.1:8090/ and sign in.
+
+The audio.cpp engine must be running on `127.0.0.1:8080` (see
+`/projects/audio-cpp-test` or your engine install).
+
+## API
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /healthz` | none | liveness |
+| `POST /v1/audio/speech` | `tts` scope | TTS, body forwarded to the engine (OpenAI shape) |
+| `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
+| `POST /admin/keys` | `admin` | create key `{"name":"...","scopes":["tts"]}` → returns `rawKey` once |
+| `DELETE /admin/keys/<id>` | `admin` | revoke a key |
+| `GET /admin/engine/models` | `admin` | engine's model list (proxied) |
+| `GET /` | none | WebUI |
+
+### Example
+
+```bash
+curl -X POST http://127.0.0.1:8090/v1/audio/speech \
+  -H "Authorization: Bearer omn_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"wav"}' \
+  -o out.wav
+```
+
+## Security notes
+
+- Binds **127.0.0.1** by default — change `serverConfig.address` to expose on LAN.
+- Keys are stored as hashes; the raw key is returned exactly once at creation.
+- The WebUI keeps the admin key in `localStorage` (localhost-only trade-off).
+
+## Layout
+
+```
+src/main.cpp    service: auth, routes, engine proxy, bootstrap
+web/index.html  self-contained admin SPA (no build step)
+resources/      static assets (banner, etc.)
+data/           runtime state (sqlite db) — created on first run, gitignored
+CMakeLists.txt  links OmniNet (prebuilt or from source)
+```
+
+## Roadmap
+
+- whisper.cpp STT route (`/v1/audio/transcriptions`)
+- Model management in the WebUI (download/enable via audio.cpp GGUF registry)
+- Rate limiting per key
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Lee Stripp and daedalus.

@@ -1,0 +1,22 @@
+# build
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# runtime state — never commit
+data/
+chimpflow.out
+nohup.out
+
+# test artifacts
+*.wav
+!test/fixtures/*.wav
+
+# agent runtime
+.daedalus/
+
+# misc
+.DS_Store
+*.log
