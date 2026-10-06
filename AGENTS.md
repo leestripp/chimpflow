@@ -48,6 +48,13 @@ next to itself (web root resolves via /proc/self/exe).
 
 ## Hard-won facts (don't relearn)
 
+- PipeWire: `pw_thread_loop_stop()` MUST be called WITHOUT `pw_thread_loop_lock`
+  held — it posts do_stop to the loop thread then `pthread_join()`s it; the loop
+  thread can't process do_stop while the lock is held → deadlock (this froze
+  ChimpEcho's UI on every record stop). Order: lock → `pw_stream_destroy` →
+  unlock → stop. `pw_stream_destroy` itself is non-blocking and lock-safe. Also:
+  no `SPA_AUDIO_POSITION_MONO` on PW 1.6 (it's `SPA_AUDIO_CHANNEL_MONO` in raw.h),
+  `pw_stream_connect` needs `const spa_pod**` + a cast on the flags.
 - OmniNet API: `StatusCode::SCREAMING_SNAKE_CASE`, `validateAndUse(key, ip)` →
   `.valid` / `.key` / `.error`, `Server` is `.start()` not `.run()`. The bundled
   helper is renamed `sendJson` (nlohmann `json` collides with OmniNet's).
