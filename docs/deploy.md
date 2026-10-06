@@ -36,10 +36,14 @@ before touching anything.
 bash install.sh        # build → cmake --install → unit → enable --now → linger
 ```
 
-On a **fresh database** the bootstrap admin key prints once and is saved to
-`~/.local/share/chimpflow/ADMIN_KEY` (mode 600). There is no recovery for a lost
-key — without any admin key the only fix is deleting `data/chimpflow.db`
-(destructive). The WebUI at `http://127.0.0.1:8090` manages keys interactively.
+On a **fresh database**, the binary itself generates a bootstrap admin key
+(`chimpflow-bootstrap-admin`, scopes `admin`+`tts`+`stt`) and prints it **once**
+to stdout (i.e. the journal); restarts with an existing db never reprint it.
+`install.sh` scrapes the journal and saves the key to
+`~/.local/share/chimpflow/ADMIN_KEY` (mode 600), displaying it at the end of
+the install run. There is no recovery for a lost key — without any admin key
+the only fix is deleting `data/chimpflow.db` (destructive). The WebUI at
+`http://127.0.0.1:8090` manages keys interactively.
 
 Then the two engines (install.sh does **not** do these):
 
