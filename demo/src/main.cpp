@@ -1,6 +1,10 @@
 // ChimpEcho — parrot demo for ChimpFlow: hold to talk, it STTs your speech
 // through the service and speaks it straight back (TTS). gtkmm-4 + PipeWire
-// for audio I/O, OmniNet for HTTP.
+// for audio I/O, OmniNet for HTTP. The network round trip runs on a worker
+// thread with hard timeouts — the UI thread never blocks on the service.
+//
+// Debug: everything is logged to stderr (launcher redirects to
+// /tmp/chimp-echo.log); set CHIMPECHO_LOG=/path to also append to a file.
 #include <gtkmm.h>
 #include <pipewire/pipewire.h>
 #include <spa/param/audio/format-utils.h>
@@ -11,22 +15,44 @@
 #include "wav.h"
 #include <nlohmann/json.hpp>
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 using OmniNet::HTTP::Client;
+using OmniNet::HTTP::ClientConfig;
 using OmniNet::HTTP::ClientRequest;
 using OmniNet::HTTP::StatusCode;
 using namespace chimpecho;
 
 namespace {
+
+// ---- logging --------------------------------------------------------------
+void logLine(const std::string& msg) {
+    char ts[16] = {};
+    std::time_t t = std::time(nullptr);
+    std::strftime(ts, sizeof ts, "%H:%M:%S", std::localtime(&t));
+    std::string line = std::string{"["} + ts + "] " + msg + "\n";
+    std::fwrite(line.data(), 1, line.size(), stderr);
+    std::fflush(stderr);  // survive a crash: never leave the last line buffered
+    if (auto* p = std::getenv("CHIMPECHO_LOG")) {
+        if (std::FILE* f = std::fopen(p, "a")) {
+            std::fwrite(line.data(), 1, line.size(), f);
+            std::fclose(f);
+        }
+    }
+}
 
 // ---- config ---------------------------------------------------------------
 std::string g_base  = "http://127.0.0.1:8090";
@@ -34,11 +60,15 @@ std::string g_key;
 std::string g_voice = "alba";
 
 void loadConfig() {
+    std::string keySource = "none";
     if (auto* e = std::getenv("CHIMPFLOW_URL"))  g_base = e;
     if (auto* e = std::getenv("CHIMPFLOW_VOICE")) g_voice = e;
-    if (auto* e = std::getenv("CHIMPFLOW_KEY")) { g_key = e; return; }
-    auto p = std::filesystem::path(std::getenv("HOME")) / ".local/share/chimpflow/ADMIN_KEY";
-    if (std::ifstream f{p}; f) std::getline(f, g_key);
+    if (auto* e = std::getenv("CHIMPFLOW_KEY")) { g_key = e; keySource = "CHIMPFLOW_KEY"; }
+    else {
+        auto p = std::filesystem::path(std::getenv("HOME")) / ".local/share/chimpflow/ADMIN_KEY";
+        if (std::ifstream f{p}; f && std::getline(f, g_key)) keySource = "ADMIN_KEY file";
+    }
+    logLine("config: base=" + g_base + " voice=" + g_voice + " key=" + keySource);
 }
 
 // ---- PipeWire -------------------------------------------------------------
@@ -50,6 +80,7 @@ struct PwInitGuard {
 struct Capture {
     pw_thread_loop* loop = nullptr;
     pw_stream* stream = nullptr;
+    std::atomic<bool> active{false};
     std::mutex mtx;
     std::vector<float> buf;
 
@@ -58,7 +89,7 @@ struct Capture {
         pw_buffer* b;
         while ((b = pw_stream_dequeue_buffer(self->stream)) != nullptr) {
             spa_data& d = b->buffer->datas[0];
-            if (d.data) {
+            if (self->active && d.data) {
                 auto n = static_cast<std::size_t>(d.chunk->size) / sizeof(float);
                 const float* s = static_cast<const float*>(d.data);
                 std::lock_guard lk(self->mtx);
@@ -91,16 +122,24 @@ struct Capture {
                 PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS), params, 1) < 0)
             throw std::runtime_error("pw capture connect failed");
         if (pw_thread_loop_start(loop) < 0) throw std::runtime_error("pw loop start failed");
+        active = true;
+        logLine("capture started (16 kHz mono f32)");
     }
 
     std::vector<float> stop() {
         if (!loop) return {};  // idempotent — stop may fire twice per cycle
+        active = false;  // RT callback stops touching buf before we tear down
         pw_thread_loop_lock(loop);
         pw_stream_destroy(stream); stream = nullptr;
         pw_thread_loop_stop(loop);
         pw_thread_loop_destroy(loop); loop = nullptr;
         std::lock_guard lk(mtx);
-        return std::move(buf);
+        auto out = std::move(buf);
+        buf.clear();
+        logLine("capture stopped: " + std::to_string(out.size()) + " samples (" +
+                std::to_string(out.size() / 16000) + "." +
+                std::to_string((out.size() / 160) % 100) + " s)");
+        return out;
     }
 };
 
@@ -165,6 +204,8 @@ struct Playback {
                 PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS), params, 1) < 0)
             throw std::runtime_error("pw playback connect failed");
         if (pw_thread_loop_start(loop) < 0) throw std::runtime_error("pw loop start failed");
+        logLine("playback started: rate=" + std::to_string(rate) +
+                " samples=" + std::to_string(samples.size()));
     }
 
     void stop() {
@@ -177,7 +218,8 @@ struct Playback {
 };
 
 // ---- HTTP (OmniNet) -------------------------------------------------------
-// Returns body on HTTP 200; on failure sets `err` and returns std::nullopt.
+// Timed (3 s connect / 45 s request) so a wedged service can never hang the
+// app. Returns body on HTTP 200; on failure sets `err`.
 std::optional<std::string> post(const std::string& path, const std::string& contentType,
                                 const std::string& payload, std::string& err) {
     ClientRequest req;
@@ -185,18 +227,36 @@ std::optional<std::string> post(const std::string& path, const std::string& cont
        .header("Authorization", "Bearer " + g_key)
        .header("Content-Type", contentType)
        .body(payload);
-    auto r = Client::get_instance().send_blocking(req);
-    if (!r) { err = "service unreachable (is ChimpFlow running?)"; return std::nullopt; }
-    if (r->status() != StatusCode::OK) {
-        err = "HTTP " + std::to_string(static_cast<int>(r->status())) + ": " +
-              std::string(reinterpret_cast<const char*>(r->body().data()),
-                          r->body().size()).substr(0, 200);
+    ClientConfig cfg;
+    cfg.connect_timeout = std::chrono::seconds(3);
+    cfg.request_timeout = std::chrono::seconds(45);
+    const auto t0 = std::chrono::steady_clock::now();
+    auto r = Client::get_instance().send_blocking(req, cfg);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+    if (!r) {
+        err = "request failed or timed out after " + std::to_string(ms) + " ms (is ChimpFlow running?)";
+        logLine("POST " + path + " -> FAILED after " + std::to_string(ms) + " ms");
         return std::nullopt;
     }
-    return std::string(reinterpret_cast<const char*>(r->body().data()), r->body().size());
+    const std::string body(reinterpret_cast<const char*>(r->body().data()), r->body().size());
+    logLine("POST " + path + " -> " + std::to_string(static_cast<int>(r->status())) +
+            " in " + std::to_string(ms) + " ms, " + std::to_string(body.size()) + " bytes");
+    if (r->status() != StatusCode::OK) {
+        err = "HTTP " + std::to_string(static_cast<int>(r->status())) + ": " + body.substr(0, 200);
+        return std::nullopt;
+    }
+    return body;
 }
 
 // ---- window ---------------------------------------------------------------
+struct EchoResult {
+    bool ok = false;
+    std::string err, text;
+    std::uint32_t rate = 0;
+    std::vector<float> pcm;
+};
+
 class EchoWindow : public Gtk::ApplicationWindow {
 public:
     EchoWindow() {
@@ -233,8 +293,14 @@ public:
         talk_.signal_clicked().connect([this] { endTalk(); });
 
         playbackDone_.connect([this] { onPlaybackDone(); });
-        signal_close_request().connect([this] { capturing_ ? (void)capture_.stop() : void();
-                                                  playing_.stop(); return false; }, false);
+        workDone_.connect([this] { onWorkDone(); });
+        signal_close_request().connect([this] {
+            logLine("window closing");
+            capturing_ ? (void)capture_.stop() : void();
+            playing_.stop();
+            if (worker_.joinable()) worker_.join();
+            return false;
+        }, false);
     }
 
 private:
@@ -248,12 +314,12 @@ private:
         if (talking_ || g_key.empty()) return;
         if (capturing_) { endTalk(); return; }  // press-again toggles off even
         try {                                   // if 'released' was eaten
-            capture_.buf.clear();
             capture_.start();
             capturing_ = true;
             talk_.set_label("🔴\nListening…");
             status_.set_text("recording — release to send");
         } catch (const std::exception& e) {
+            logLine(std::string{"ERROR capture start: "} + e.what());
             status_.set_text(std::string("⚠ mic failed: ") + e.what());
         }
     }
@@ -263,52 +329,79 @@ private:
         capturing_ = false;
         talk_.set_label("⏳\nThinking…");
         status_.set_text("transcribing…");
-        // let the UI paint, then do the HTTP round trip on the main thread
-        Glib::signal_idle().connect_once([this] { echo(); });
-    }
-
-    void echo() {
         std::vector<float> samples;
         try { samples = capture_.stop(); }
-        catch (const std::exception& e) { status_.set_text(std::string("⚠ ") + e.what()); setBusy(false); return; }
-
-        setBusy(true);
+        catch (const std::exception& e) {
+            logLine(std::string{"ERROR capture stop: "} + e.what());
+            status_.set_text(std::string("⚠ ") + e.what());
+            setBusy(false);
+            return;
+        }
         if (samples.size() < 16000 / 4) {  // < 0.25 s — probably silence
             heard_.set_text("(heard nothing)");
             status_.set_text("ready");
             setBusy(false);
             return;
         }
+        setBusy(true);
+        // The network round trip runs on a worker thread — the UI stays alive.
+        worker_ = std::jthread([this, wav = makeWav16(samples)]() mutable {
+            logLine("STT request: " + std::to_string(wav.size()) + " byte wav");
+            EchoResult r;
+            std::string err;
+            auto stt = post("/v1/audio/transcriptions",
+                            "multipart/form-data; boundary=----ChimpEchoBoundary",
+                            multipartBody("----ChimpEchoBoundary", wav), err);
+            if (!stt) { r.err = err; finish(std::move(r)); return; }
+            try { r.text = nlohmann::json::parse(*stt).at("text").get<std::string>(); }
+            catch (const std::exception&) { r.err = "bad STT response: " + stt->substr(0, 200); finish(std::move(r)); return; }
+            while (!r.text.empty() && (r.text.back() == '\n' || r.text.back() == ' ')) r.text.pop_back();
+            logLine("STT heard: \"" + r.text + "\"");
+            if (r.text.empty()) { r.ok = true; finish(std::move(r)); return; }
+            nlohmann::json ttsReq = {{"model", "pocket-tts"}, {"input", r.text},
+                                     {"voice", g_voice}, {"response_format", "wav"}};
+            auto tts = post("/v1/audio/speech", "application/json", ttsReq.dump(), err);
+            if (!tts) { r.err = err; finish(std::move(r)); return; }
+            if (!parseWav(*tts, r.rate, r.pcm)) { r.err = "couldn't parse TTS audio"; finish(std::move(r)); return; }
+            r.ok = true;
+            finish(std::move(r));
+        });
+    }
 
-        std::string err;
-        const std::string boundary = "----ChimpEchoBoundary";
-        auto wav = makeWav16(samples);
-        auto stt = post("/v1/audio/transcriptions",
-                        "multipart/form-data; boundary=" + boundary,
-                        multipartBody(boundary, wav), err);
-        if (!stt) { status_.set_text("⚠ " + err); setBusy(false); return; }
+    // Worker writes result_, then emits — Dispatcher gives the UI thread
+    // happens-before visibility.
+    void finish(EchoResult r) {
+        result_ = std::move(r);
+        workDone_.emit();
+    }
 
-        std::string text;
-        try { text = nlohmann::json::parse(*stt).at("text").get<std::string>(); }
-        catch (const std::exception&) { status_.set_text("⚠ bad STT response: " + *stt); setBusy(false); return; }
-        while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
-        heard_.set_text("heard: “" + text + "”");
-        if (text.empty()) { status_.set_text("ready"); setBusy(false); return; }
-
+    void onWorkDone() {
+        auto r = std::move(result_);
+        if (!r) return;
+        if (!r->ok) {
+            logLine("ERROR: " + r->err);
+            status_.set_text("⚠ " + r->err);
+            talk_.set_label("🎤\nHold to talk");
+            setBusy(false);
+            return;
+        }
+        heard_.set_text(r->text.empty() ? "(silence?)" : "heard: “" + r->text + "”");
+        if (r->text.empty()) {
+            status_.set_text("ready");
+            setBusy(false);
+            return;
+        }
         status_.set_text("speaking…");
-        nlohmann::json ttsReq = {{"model", "pocket-tts"}, {"input", text},
-                                 {"voice", g_voice}, {"response_format", "wav"}};
-        auto tts = post("/v1/audio/speech", "application/json", ttsReq.dump(), err);
-        if (!tts) { status_.set_text("⚠ " + err); setBusy(false); return; }
-
-        std::uint32_t rate = 0;
-        std::vector<float> pcm;
-        if (!parseWav(*tts, rate, pcm)) { status_.set_text("⚠ couldn't parse TTS audio"); setBusy(false); return; }
-        try { playing_.start(rate, std::move(pcm)); }
-        catch (const std::exception& e) { status_.set_text(std::string("⚠ speaker failed: ") + e.what()); setBusy(false); }
+        try { playing_.start(r->rate, std::move(r->pcm)); }
+        catch (const std::exception& e) {
+            logLine(std::string{"ERROR playback start: "} + e.what());
+            status_.set_text(std::string("⚠ speaker failed: ") + e.what());
+            setBusy(false);
+        }
     }
 
     void onPlaybackDone() {
+        logLine("playback done");
         playing_.stop();
         status_.set_text("ready");
         talk_.set_label("🎤\nHold to talk");
@@ -317,9 +410,11 @@ private:
 
     Gtk::Button talk_;
     Gtk::Label status_, heard_;
-    Glib::Dispatcher playbackDone_;
+    Glib::Dispatcher playbackDone_, workDone_;
     Capture capture_;
     Playback playing_{playbackDone_};
+    std::optional<EchoResult> result_;
+    std::jthread worker_;
     bool talking_ = false, capturing_ = false;
 };
 
@@ -328,11 +423,14 @@ private:
 int main(int argc, char** argv) {
     loadConfig();
     PwInitGuard pw;
+    logLine("chimp-echo starting");
     auto app = Gtk::Application::create("com.leestripp.chimpecho");
     app->signal_activate().connect([&] {
         auto* win = new EchoWindow();
         win->set_application(app);
         win->present();
     });
-    return app->run(argc, argv);
+    const int rc = app->run(argc, argv);
+    logLine("chimp-echo exiting");
+    return rc;
 }
