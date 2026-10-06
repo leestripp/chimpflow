@@ -144,6 +144,8 @@
     <section id="tab-status" class="card hidden">
       <h2>Service</h2>
       <div id="svcStatus" class="muted">checking…</div>
+      <h2 style="margin-top:20px">Transcription engine</h2>
+      <div id="sttStatus" class="muted">checking…</div>
       <h2 style="margin-top:20px">Engine models</h2>
       <div id="modelsList" class="muted">checking…</div>
     </section>
@@ -226,6 +228,16 @@ async function loadStatus() {
   } catch (e) {
     $("svcStatus").innerHTML = '<span style="color:var(--err)">●</span> ' + esc(e.message);
     $("modelsList").textContent = "—";
+  }
+  try {
+    const s = await (await api("/admin/engine/stt")).json();
+    $("sttStatus").innerHTML = s.reachable
+      ? '<span style="color:var(--ok)">●</span> whisper.cpp reachable — model <b>' +
+        esc(s.model) + '</b> <span class="muted">(' + esc(s.url) + ')</span>'
+      : '<span style="color:var(--err)">●</span> whisper.cpp unreachable <span class="muted">(' +
+        esc(s.url) + ')</span>';
+  } catch (e) {
+    $("sttStatus").innerHTML = '<span style="color:var(--err)">●</span> ' + esc(e.message);
   }
 }
 

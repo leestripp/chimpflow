@@ -21,6 +21,10 @@ namespace {
 constexpr std::string_view kEngineBase = "http://127.0.0.1:8080";
 // Transcription endpoint (whisper.cpp server; see chimpflow-whisper.service)
 constexpr std::string_view kSttBase = "http://127.0.0.1:8081";
+// Model the companion whisper service serves. whisper-server has no
+// model-listing endpoint, so the status route reports this constant — keep
+// it in sync with chimpflow-whisper.service's --model flag.
+constexpr std::string_view kSttModel = "ggml-tiny.en";
 
 
 // Locate the web/ dir next to the executable (independent of CWD)
@@ -179,7 +183,8 @@ constexpr std::string_view kSkillManifest = R"CHIMP({
     {"method": "GET",  "path": "/admin/keys",           "auth": "bearer", "scope": "admin"},
     {"method": "POST", "path": "/admin/keys",           "auth": "bearer", "scope": "admin", "body": {"name": "key name", "scopes": ["tts"]}, "notes": "rawKey returned once"},
     {"method": "DELETE", "path": "/admin/keys/{id}",    "auth": "bearer", "scope": "admin"},
-    {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "discover model/voice values"}
+    {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "discover model/voice values"},
+    {"method": "GET",  "path": "/admin/engine/stt",     "auth": "bearer", "scope": "admin", "notes": "whisper.cpp reachability + served model"}
   ],
   "errors": {"shape": {"error": "message"}, "401": "missing/invalid key", "403": "missing scope", "502": "engine down"}
 })CHIMP";
@@ -383,6 +388,27 @@ int main() {
         resp.setBody(r->bodyAsStringView());
     });
 
+    // STT engine status (whisper.cpp reachability + served model, admin only).
+    // Never 502s: reports {"reachable":false} so the WebUI can show it.
+    server.get("/admin/engine/stt", [&requireAdmin](const Request& req, Response& resp) {
+        Token::ApiKeyStore::ValidationResult v;
+        if (!requireAdmin(req, v))
+            return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
+        ClientRequest fwd;
+        fwd.method("GET").url(std::string(kSttBase) + "/health");
+        OmniNet::HTTP::ClientConfig cfg;
+        cfg.connect_timeout = std::chrono::seconds(2);
+        cfg.request_timeout = std::chrono::seconds(4);
+        const bool up = Client::get_instance().send_blocking(fwd, cfg).has_value();
+        nlohmann::json out = {
+            {"engine", "whisper.cpp"},
+            {"model", std::string(kSttModel)},
+            {"url", std::string(kSttBase)},
+            {"reachable", up},
+        };
+        sendJson(resp, StatusCode::OK, out.dump());
+    });
+
     // --- WebUI (static, open) ---
     StaticHandler staticHandler(webRoot());
     staticHandler.setDefaultFile("index.html");
@@ -398,6 +424,7 @@ int main() {
               << "  /v1/models         (Bearer key, any valid)\n"
               << "  /v1/audio/speech    (Bearer key, 'tts' scope)\n"
               << "  /v1/audio/transcriptions (Bearer key, 'stt' scope)\n"
+              << "  /admin/engine/stt   (Bearer key, 'admin' scope)\n"
               << "  /admin/keys         (Bearer key, 'admin' scope)\n";
     server.start();
     OmniNet::cleanup();

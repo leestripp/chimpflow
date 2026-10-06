@@ -35,6 +35,10 @@ resp=$(curl -s -X POST "$BASE/v1/audio/transcriptions" "${AUTH[@]}" -F file=@"$w
 if echo "$resp" | grep -qi "integration test"; then ok "STT round trip: $resp"
 else bad "STT round trip got: $resp"; fi
 
+stt=$(curl -s "$BASE/admin/engine/stt" "${AUTH[@]}")
+if echo "$stt" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("reachable") is True and "whisper" in d.get("engine","")' 2>/dev/null
+then ok "STT admin status: $stt"; else bad "STT admin status: $stt"; fi
+
 expect "GET /skill/manifest.json" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/skill/manifest.json")"
 if curl -fsS "$BASE/skill/manifest.json" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("endpoints"), list) and len(d["endpoints"]) >= 8' 2>/dev/null
 then ok "skill manifest lists all endpoints"; else bad "skill manifest malformed"; fi
