@@ -158,6 +158,32 @@ Models, voices, and speaker embeddings currently loaded in the engine.
 Use it to discover valid `model` and `voice` values for the speech route.
 (The same list is also at `/admin/engine/models` for admin keys.)
 
+## Adding ChimpFlow to your app
+
+ChimpFlow mirrors the OpenAI audio API, so client libraries work by pointing
+them at the gateway (base_url http://127.0.0.1:8090/v1, api_key = your
+chimpflow key). Integration checklist:
+
+1. **Obtain a key from the human operator** — the gateway never
+   self-provisions. With an admin key, mint a dedicated least-privilege key
+   for your app (scopes ["tts"], ["stt"], or both); rawKey shows once — store
+   it in the app's environment or a secrets store, never in source control.
+   The demo's convention: CHIMPFLOW_URL / CHIMPFLOW_KEY / CHIMPFLOW_VOICE.
+
+2. **Discover at runtime; don't hardcode.** On startup GET /v1/models and use
+   the returned model/voice values — the engine's loaded voices can change.
+
+3. **Handle the error contract deliberately:** 401 = bad key, stop and tell
+   the operator (retrying cannot help); 403 = key lacks scope, needs a
+   differently-scoped key; 502 = an engine is down (audio.cpp :8080 or
+   whisper :8081), surface it instead of retry-looping.
+
+4. **Preflight batches:** check /healthz first — one bad key 401s every call
+   in the job.
+
+5. **Stay localhost:** bind nothing to a LAN address; never forward keys or
+   text off this machine.
+
 ## Error shape
 
 All errors are JSON: {"error":"human-readable message"}
