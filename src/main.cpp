@@ -62,7 +62,7 @@ void sendJson(Response& resp, StatusCode code, std::string_view body) {
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
 description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (WAV narration, voice output, read-aloud) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
-version: 0.1.0
+version: 0.1.1
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
@@ -180,7 +180,7 @@ All errors are JSON: {"error":"human-readable message"}
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
   "description": "Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (WAV narration, voice output, read-aloud) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "base_url": "http://127.0.0.1:8090",
   "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "scopes": ["admin", "tts", "stt"]},
   "endpoints": [
