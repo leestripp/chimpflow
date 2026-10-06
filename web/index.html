@@ -222,7 +222,18 @@ function enterApp() {
   $("loginCard").classList.add("hidden");
   $("app").classList.remove("hidden");
   $("logoutBtn").classList.remove("hidden");
-  loadKeys(); ping();
+  loadKeys(); ping(); loadVoices();
+}
+
+// Voices: prefer the live /v1/voices catalog; the hardcoded <option>s in
+// markup are the fallback if the endpoint is unavailable or unconfigured.
+async function loadVoices() {
+  try {
+    const j = await (await api("/v1/voices")).json();
+    const voices = Array.isArray(j.data) ? j.data.map(v => v.id).filter(Boolean) : [];
+    if (!voices.length) return;
+    $("ttsVoice").innerHTML = voices.map(v => "<option>" + esc(v) + "</option>").join("");
+  } catch { /* keep the built-in fallback list */ }
 }
 $("loginBtn").addEventListener("click", tryConnect);
 $("apiKeyInput").addEventListener("keydown", e => { if (e.key === "Enter") tryConnect(); });

@@ -31,6 +31,10 @@ CHIMPFLOW_LISTEN_HOST=127.0.0.1
 CHIMPFLOW_LISTEN_PORT=8090
 CHIMPFLOW_ENGINE_URL=http://127.0.0.1:8080
 CHIMPFLOW_STT_URL=http://127.0.0.1:8081
+# Voice catalog for GET /v1/voices: dir of engine voice samples (*.wav).
+# Ids served = file basenames, matching what the engine resolves `voice` to.
+# Leave unset to disable voice listing (the endpoint then answers 503).
+CHIMPFLOW_VOICES_DIR=/projects/audio-cpp-test/voice_samples
 # Whisper model basename (the whisper unit appends .bin). Single source for
 # both the status page and the whisper service's --model.
 CHIMPFLOW_STT_MODEL=ggml-tiny.en

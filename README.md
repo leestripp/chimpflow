@@ -95,7 +95,8 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /healthz` | none | liveness |
-| `GET /v1/models` | any valid key | engine model/voice list (proxied) |
+| `GET /v1/models` | any valid key | engine model list (proxied) |
+| `GET /v1/voices` | any valid key | voice catalog (`CHIMPFLOW_VOICES_DIR` `*.wav` basenames; 503 if unconfigured) |
 | `POST /v1/audio/transcriptions` | `stt` scope | STT, multipart `file` forwarded to whisper.cpp (`{"text":"..."}`) |
 | `GET /skill/` + `/skill/manifest.json` | none | agent guide: how an AI agent should use this API (markdown + JSON twin) |
 | `POST /v1/audio/speech` | `tts` scope | TTS, body forwarded to the engine (OpenAI shape) |
