@@ -186,7 +186,8 @@ struct Playback {
         {
             std::lock_guard lk(mtx);
             queue.assign(samples.begin(), samples.end());
-        }
+            notified = false;  // re-arm the done latch — without this the 2nd
+        }                      // playback never signals and the UI dead-locks
         static pw_stream_events events = {PW_VERSION_STREAM_EVENTS, nullptr, nullptr, nullptr};
         events.process = &Playback::onProcess;
         loop = pw_thread_loop_new("chimpecho-play", nullptr);
