@@ -59,3 +59,8 @@ target_compile_options(chimpflow PRIVATE -Wall -Wextra)
 # Use: cmake --install build --prefix <dir>  (DESTDIR honored)
 install(TARGETS chimpflow RUNTIME DESTINATION lib/chimpflow)
 install(DIRECTORY web/ DESTINATION lib/chimpflow/web)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()

@@ -24,6 +24,18 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
 - **WebUI** at `/` — key management, TTS test bench (26 voices), engine status
 - **Bootstrap admin key** printed once on first run
 
+## Tests
+
+```bash
+ctest --test-dir build --output-on-failure          # unit + integration
+ctest --test-dir build -L unit                      # unit only (always runs)
+ctest --test-dir build -L integration               # needs the live service (SKIPs if down)
+```
+
+Unit tests cover the demo's WAV/multipart helpers (`tests/test_wav.cpp`,
+zero-dependency harness). Integration (`tests/integration.sh`) smoke-tests a
+running service: auth gates (401/403), TTS, STT round trip, /v1/models, /skill.
+
 ## Demo
 
 `demo/` holds **ChimpEcho**, a hold-to-talk parrot app (gtkmm-4 + PipeWire)

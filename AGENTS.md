@@ -20,6 +20,8 @@ journalctl --user -u chimpflow -f                 # service logs
 pgrep -x chimpflow | xargs -r kill                # stop a dev instance
 setsid ./build/chimpflow > chimpflow.out 2>&1 < /dev/null &   # dev start detached
 curl -s http://127.0.0.1:8090/healthz             # smoke test
+ctest --test-dir build --output-on-failure      # unit + integration tests
+ctest --test-dir build -L integration           # live-service suite (skips if down)
 ```
 
 Installed layout (do not confuse with the repo): binary + `web/` in
