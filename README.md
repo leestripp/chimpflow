@@ -68,8 +68,12 @@ Builds and installs as a **systemd user service** running as you: binary +
 WebUI to `~/.local/lib/chimpflow/`, data (sqlite + `ADMIN_KEY`) to
 `~/.local/share/chimpflow/`. Enabled at boot via `loginctl enable-linger`
 — starts without login, restarts on failure, logs to the user journal.
-The bootstrap admin key is printed once and saved to
-`~/.local/share/chimpflow/ADMIN_KEY` (mode 600). Manage with
+On a fresh database the binary generates a bootstrap admin key
+(`chimpflow-bootstrap-admin`, scopes `admin`+`tts`+`stt`) and prints it
+**once**; `install.sh` scrapes the journal and saves it to
+`~/.local/share/chimpflow/ADMIN_KEY` (mode 600). Lose every admin key and the
+only reset is deleting `data/chimpflow.db` (destructive) — full flow in
+[docs/deploy.md](docs/deploy.md). Manage with
 `systemctl --user {status,restart,stop} chimpflow` and
 `journalctl --user -u chimpflow -f`.
 
