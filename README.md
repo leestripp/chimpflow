@@ -126,12 +126,13 @@ web/index.html  self-contained admin SPA (no build step)
 demo/           ChimpEcho hold-to-talk demo client (standalone CMake)
 tests/          unit harness + live-service integration suite
 docs/design.md  architecture, API design, invariants
+docs/deploy.md  installation, units, updating, troubleshooting
 resources/      static assets (banner, etc.)
 data/           runtime state (sqlite db) — created on first run, gitignored
 CMakeLists.txt  links OmniNet (prebuilt or from source)
 ```
 
-Design details live in [docs/design.md](docs/design.md).
+Design details live in [docs/design.md](docs/design.md); deployment (what runs where, first install, units, updating, troubleshooting) in [docs/deploy.md](docs/deploy.md).
 
 ## Roadmap
 

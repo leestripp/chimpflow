@@ -52,16 +52,17 @@ void sendJson(Response& resp, StatusCode code, std::string_view body) {
 // Written for an AI agent reader: task-oriented, exact request shapes, honest errors.
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
-description: Local text-to-speech for AI agents on this machine. Use whenever a task needs spoken audio — WAV narration, voice output, read-aloud. Runs on localhost, no cloud, OpenAI-compatible endpoint.
+description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (WAV narration, voice output, read-aloud) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
 version: 0.1.0
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
 
-# ChimpFlow — local TTS gateway for agents
+# ChimpFlow — local TTS + STT gateway for agents
 
 ChimpFlow is a localhost-only voice service. It checks API keys and proxies
-text-to-speech to the audio.cpp engine. It never leaves this machine.
+text-to-speech to the audio.cpp engine (TTS) and transcription to whisper.cpp
+(STT). It never leaves this machine.
 
 ## Authentication
 
@@ -169,7 +170,7 @@ All errors are JSON: {"error":"human-readable message"}
 // Same guide as structured data, for agent frameworks that prefer JSON.
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
-  "description": "Local text-to-speech for AI agents on this machine. Use whenever a task needs spoken audio — WAV narration, voice output, read-aloud. Runs on localhost, no cloud, OpenAI-compatible endpoint.",
+  "description": "Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (WAV narration, voice output, read-aloud) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.",
   "version": "0.1.0",
   "base_url": "http://127.0.0.1:8090",
   "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "scopes": ["admin", "tts", "stt"]},
