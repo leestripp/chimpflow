@@ -131,6 +131,11 @@ struct Capture {
         active = false;  // RT callback stops touching buf before we tear down
         pw_thread_loop_lock(loop);
         pw_stream_destroy(stream); stream = nullptr;
+        // MUST unlock before pw_thread_loop_stop: stop() joins the loop
+        // thread, which cannot process its own do_stop while we hold the
+        // lock — holding it across stop() deadlocks (UI froze on every
+        // capture/playback teardown). Verified with /tmp/pw_repro (5 cycles).
+        pw_thread_loop_unlock(loop);
         pw_thread_loop_stop(loop);
         pw_thread_loop_destroy(loop); loop = nullptr;
         std::lock_guard lk(mtx);
@@ -212,6 +217,11 @@ struct Playback {
         if (!loop) return;
         pw_thread_loop_lock(loop);
         pw_stream_destroy(stream); stream = nullptr;
+        // MUST unlock before pw_thread_loop_stop: stop() joins the loop
+        // thread, which cannot process its own do_stop while we hold the
+        // lock — holding it across stop() deadlocks (UI froze on every
+        // capture/playback teardown). Verified with /tmp/pw_repro (5 cycles).
+        pw_thread_loop_unlock(loop);
         pw_thread_loop_stop(loop);
         pw_thread_loop_destroy(loop); loop = nullptr;
     }
