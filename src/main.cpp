@@ -235,7 +235,7 @@ constexpr std::string_view kSkillManifest = R"CHIMP({
     {"method": "GET",  "path": "/admin/keys",           "auth": "bearer", "scope": "admin"},
     {"method": "POST", "path": "/admin/keys",           "auth": "bearer", "scope": "admin", "body": {"name": "key name", "scopes": ["tts"]}, "notes": "rawKey returned once"},
     {"method": "DELETE", "path": "/admin/keys/{id}",    "auth": "bearer", "scope": "admin"},
-    {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "discover model/voice values"},
+    {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "engine model list (proxied; no voices)"},
     {"method": "GET",  "path": "/admin/engine/stt",     "auth": "bearer", "scope": "admin", "notes": "whisper.cpp reachability + served model"}
   ],
   "errors": {"shape": {"error": "message"}, "401": "missing/invalid key", "403": "missing scope", "502": "engine down"}
