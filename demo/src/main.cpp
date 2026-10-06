@@ -170,6 +170,7 @@ struct Capture {
     }
 
     std::vector<float> stop() {
+        if (!loop) return {};  // idempotent — stop may fire twice per cycle
         pw_thread_loop_lock(loop);
         pw_stream_destroy(stream); stream = nullptr;
         pw_thread_loop_stop(loop);
@@ -303,6 +304,9 @@ public:
         gesture->signal_pressed().connect([this](int, double, double) { beginTalk(); });
         gesture->signal_released().connect([this](int, double, double) { endTalk(); });
         talk_.add_controller(gesture);
+        // Belt and braces: the button's own activation also stops recording —
+        // endTalk() is idempotent, so a double stop is harmless.
+        talk_.signal_clicked().connect([this] { endTalk(); });
 
         playbackDone_.connect([this] { onPlaybackDone(); });
         signal_close_request().connect([this] { capturing_ ? (void)capture_.stop() : void();
@@ -318,7 +322,8 @@ private:
 
     void beginTalk() {
         if (talking_ || g_key.empty()) return;
-        try {
+        if (capturing_) { endTalk(); return; }  // press-again toggles off even
+        try {                                   // if 'released' was eaten
             capture_.buf.clear();
             capture_.start();
             capturing_ = true;
