@@ -18,6 +18,10 @@
   main { max-width:860px; margin:24px auto; padding:0 16px; }
   .card { background:var(--panel); border:1px solid var(--border);
           border-radius:10px; padding:20px; margin-bottom:16px; }
+  .engine { background:var(--bg); border:1px solid var(--border);
+            border-radius:8px; padding:12px 14px; }
+  .engine .etitle { font-weight:600; }
+  .engine .erow { margin-top:4px; }
   h2 { margin:0 0 14px; font-size:15px; color:var(--dim);
        text-transform:uppercase; letter-spacing:.05em; }
   label { display:block; margin:10px 0 4px; color:var(--dim); font-size:13px; }
@@ -77,7 +81,7 @@
   <span class="dot" id="statusDot"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.1</span>
+  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.2</span>
   <span style="flex:1"></span>
   <button id="logoutBtn" class="hidden">Sign out</button>
 </header>
@@ -145,10 +149,9 @@
     <section id="tab-status" class="card hidden">
       <h2>Service</h2>
       <div id="svcStatus" class="muted">checking…</div>
-      <h2 style="margin-top:20px">Transcription engine</h2>
-      <div id="sttStatus" class="muted">checking…</div>
-      <h2 style="margin-top:20px">Engine models</h2>
-      <div id="modelsList" class="muted">checking…</div>
+      <h2 style="margin-top:20px">Engines</h2>
+      <div id="ttsEngine" class="engine">checking…</div>
+      <div id="sttEngine" class="engine" style="margin-top:10px">checking…</div>
     </section>
   </div>
 </main>
@@ -218,30 +221,38 @@ async function ping() {
 }
 async function loadStatus() {
   ping();
-  let stt = null;
   try {
-    const s = await (await api("/admin/engine/stt")).json();
-    stt = s;
-    $("sttStatus").innerHTML = s.reachable
-      ? '<span style="color:var(--ok)">●</span> whisper.cpp reachable — model <b>' +
-        esc(s.model) + '</b> <span class="muted">(' + esc(s.url) + ')</span>'
-      : '<span style="color:var(--err)">●</span> whisper.cpp unreachable <span class="muted">(' +
-        esc(s.url) + ')</span>';
+    const j = await (await fetch("/healthz")).json();
+    $("svcStatus").innerHTML = '<span style="color:var(--ok)">●</span> online — ' +
+      esc(j.service) + ' · 127.0.0.1:8090';
   } catch (e) {
-    $("sttStatus").innerHTML = '<span style="color:var(--err)">●</span> ' + esc(e.message);
+    $("svcStatus").innerHTML = '<span style="color:var(--err)">●</span> offline';
   }
   try {
-    const r = await api("/admin/engine/models");
-    const j = await r.json();
-    $("svcStatus").innerHTML = '<span style="color:var(--ok)">●</span> OmniNet + audio.cpp engine reachable';
-    const items = (Array.isArray(j.data) ? j.data : []).map(m =>
-      `<li><b>${esc(m.id)}</b> <span class="muted">${esc(m.object || "")}</span></li>`);
-    if (stt) items.push(`<li><b>whisper</b> <span class="muted">${esc(stt.model)} · stt` +
-      (stt.reachable ? "" : " · unreachable") + `</span></li>`);
-    $("modelsList").innerHTML = "<ul style='margin:6px 0;padding-left:18px'>" + items.join("") + "</ul>";
+    const j = await (await api("/admin/engine/models")).json();
+    const all = Array.isArray(j.data) ? j.data : [];
+    const tts = all.filter(m => (m.object || "model") === "model" || (m.task || "") === "tts");
+    $("ttsEngine").innerHTML =
+      '<div class="etitle">TTS · audio.cpp <span class="muted">127.0.0.1:8080</span></div>' +
+      '<div class="erow"><span style="color:var(--ok)">●</span> reachable</div>' +
+      '<div class="erow">Model: ' + (tts.length ? tts.map(m => "<b>" + esc(m.id) + "</b>").join(", ") : "none loaded") + '</div>';
   } catch (e) {
-    $("svcStatus").innerHTML = '<span style="color:var(--err)">●</span> ' + esc(e.message);
-    $("modelsList").textContent = "—";
+    $("ttsEngine").innerHTML =
+      '<div class="etitle">TTS · audio.cpp <span class="muted">127.0.0.1:8080</span></div>' +
+      '<div class="erow"><span style="color:var(--err)">●</span> unreachable — ' + esc(e.message) + '</div>';
+  }
+  try {
+    const s = await (await api("/admin/engine/stt")).json();
+    $("sttEngine").innerHTML =
+      '<div class="etitle">STT · whisper.cpp <span class="muted">' + esc(s.url.replace("http://", "")) + '</span></div>' +
+      (s.reachable
+        ? '<div class="erow"><span style="color:var(--ok)">●</span> reachable</div>' +
+          '<div class="erow">Model: <b>' + esc(s.model) + '</b></div>'
+        : '<div class="erow"><span style="color:var(--err)">●</span> unreachable</div>');
+  } catch (e) {
+    $("sttEngine").innerHTML =
+      '<div class="etitle">STT · whisper.cpp <span class="muted">127.0.0.1:8081</span></div>' +
+      '<div class="erow"><span style="color:var(--err)">●</span> ' + esc(e.message) + '</div>';
   }
 }
 
