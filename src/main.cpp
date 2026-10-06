@@ -414,6 +414,9 @@ int main() {
     staticHandler.setDefaultFile("index.html");
     auto serveIndex = [&staticHandler](const Request& req, Response& resp) {
         staticHandler.handle(req, resp);
+        // Single-file SPA: never let the browser cache index.html, or UI
+        // updates look like they "didn't deploy" until a hard refresh.
+        resp.setHeader("Cache-Control", "no-cache");
     };
     server.router().get("/", serveIndex);
     server.router().get("/index.html", serveIndex);
