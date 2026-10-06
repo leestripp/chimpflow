@@ -81,7 +81,7 @@
   <span class="dot" id="statusDot"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.2</span>
+  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.3</span>
   <span style="flex:1"></span>
   <button id="logoutBtn" class="hidden">Sign out</button>
 </header>
@@ -146,12 +146,19 @@
       <div class="msg" id="ttsMsg"></div>
     </section>
 
-    <section id="tab-status" class="card hidden">
-      <h2>Service</h2>
-      <div id="svcStatus" class="muted">checking…</div>
-      <h2 style="margin-top:20px">Engines</h2>
-      <div id="ttsEngine" class="engine">checking…</div>
-      <div id="sttEngine" class="engine" style="margin-top:10px">checking…</div>
+    <section id="tab-status" class="hidden">
+      <div class="card">
+        <h2>Service</h2>
+        <div id="svcStatus" class="muted">checking…</div>
+      </div>
+      <div class="card">
+        <h2>audio.cpp <span class="muted" style="font-size:13px;font-weight:400">— TTS engine · http://127.0.0.1:8080</span></h2>
+        <div id="ttsEngine">checking…</div>
+      </div>
+      <div class="card">
+        <h2>whisper.cpp <span class="muted" style="font-size:13px;font-weight:400">— STT engine · http://127.0.0.1:8081</span></h2>
+        <div id="sttEngine">checking…</div>
+      </div>
     </section>
   </div>
 </main>
@@ -233,26 +240,21 @@ async function loadStatus() {
     const all = Array.isArray(j.data) ? j.data : [];
     const tts = all.filter(m => (m.object || "model") === "model" || (m.task || "") === "tts");
     $("ttsEngine").innerHTML =
-      '<div class="etitle">TTS · audio.cpp <span class="muted">127.0.0.1:8080</span></div>' +
-      '<div class="erow"><span style="color:var(--ok)">●</span> reachable</div>' +
-      '<div class="erow">Model: ' + (tts.length ? tts.map(m => "<b>" + esc(m.id) + "</b>").join(", ") : "none loaded") + '</div>';
+      '<div class="erow"><span style="color:var(--ok)">●</span> reachable — http://127.0.0.1:8080</div>' +
+      '<div class="erow">Model: ' + (tts.length ? tts.map(m => "<b>" + esc(m.id) + "</b>").join(", ") : "none loaded") + '</div>' +
+      (tts[0] && tts[0].path ? '<div class="erow muted" style="font-size:12px">' + esc(tts[0].path) + '</div>' : "");
   } catch (e) {
-    $("ttsEngine").innerHTML =
-      '<div class="etitle">TTS · audio.cpp <span class="muted">127.0.0.1:8080</span></div>' +
-      '<div class="erow"><span style="color:var(--err)">●</span> unreachable — ' + esc(e.message) + '</div>';
+    $("ttsEngine").innerHTML = '<div class="erow"><span style="color:var(--err)">●</span> unreachable — ' + esc(e.message) + '</div>';
   }
   try {
     const s = await (await api("/admin/engine/stt")).json();
     $("sttEngine").innerHTML =
-      '<div class="etitle">STT · whisper.cpp <span class="muted">' + esc(s.url.replace("http://", "")) + '</span></div>' +
       (s.reachable
-        ? '<div class="erow"><span style="color:var(--ok)">●</span> reachable</div>' +
+        ? '<div class="erow"><span style="color:var(--ok)">●</span> reachable — ' + esc(s.url) + '</div>' +
           '<div class="erow">Model: <b>' + esc(s.model) + '</b></div>'
-        : '<div class="erow"><span style="color:var(--err)">●</span> unreachable</div>');
+        : '<div class="erow"><span style="color:var(--err)">●</span> unreachable — ' + esc(s.url) + '</div>');
   } catch (e) {
-    $("sttEngine").innerHTML =
-      '<div class="etitle">STT · whisper.cpp <span class="muted">127.0.0.1:8081</span></div>' +
-      '<div class="erow"><span style="color:var(--err)">●</span> ' + esc(e.message) + '</div>';
+    $("sttEngine").innerHTML = '<div class="erow"><span style="color:var(--err)">●</span> ' + esc(e.message) + '</div>';
   }
 }
 
