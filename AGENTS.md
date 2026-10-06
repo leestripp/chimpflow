@@ -2,8 +2,9 @@
 
 # ChimpFlow — agent notes
 
-Local voice service: API-key auth + WebUI (OmniNet/C++23) proxying an
-audio.cpp server (PocketTTS today; whisper.cpp STT planned). Listens on
+Fully local voice service for Linux (no cloud): API-key auth + WebUI
+(OmniNet/C++23) proxying audio.cpp (PocketTTS TTS) and whisper.cpp
+(ggml-tiny.en STT) — all inference on localhost. Listens on
 127.0.0.1:8090; TTS engine at 127.0.0.1:8080; whisper.cpp STT at
 127.0.0.1:8081 (~/Apps/whisper.cpp, ggml-tiny.en, systemd user unit
 chimpflow-whisper.service).

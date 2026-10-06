@@ -2,19 +2,23 @@
 
 ![ChimpFlow banner — a chimp with a megaphone on a cliff over a vast jungle](resources/chimpflow-banner.png)
 
-Local voice service for Linux — TTS (and soon STT) behind API-key auth, with a
-dark web admin UI. Built on **OmniNet** (C++23 HTTP/sqlite) with **audio.cpp**
-as the speech engine and **PocketTTS** as the first model.
+**Fully local voice service for Linux — no cloud, no API keys to anyone else.**
+TTS and STT behind your own API-key auth, with a dark web admin UI. Built on
+**OmniNet** (C++23 HTTP/sqlite) with **audio.cpp** + **PocketTTS** (Vulkan) for
+speech and **whisper.cpp** + **ggml-tiny.en** for transcription. Every model
+runs on your machine; the only network use is the one-time download of model
+files.
 
 ```
-client ──HTTP──▶ ChimpFlow (OmniNet) ──HTTP──▶ audio.cpp server ──▶ PocketTTS (Vulkan)
-                  API keys, scopes,        OpenAI-compatible
-                  WebUI, sqlite           /v1/audio/speech
-```
+                ┌─▶ audio.cpp server ──▶ PocketTTS (Vulkan)   /v1/audio/speech
+client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.cpp ──▶ ggml-tiny.en   /v1/audio/transcriptions
+                └─▶ API keys, scopes, WebUI, sqlite           /v1/models
 
 ## Features
 
 - **OpenAI-compatible TTS**: `POST /v1/audio/speech` (model, input, voice, response_format)
+- **OpenAI-compatible STT**: `POST /v1/audio/transcriptions` (multipart `file` → `{"text":"..."}`, powered by local whisper.cpp)
+- **Fully local**: all inference on your hardware — no external API calls, works offline
 - **Scoped API keys**: `tts` / `stt` / `admin` scopes, hashed at rest in sqlite,
   per-key use counts, revocation, expiration support
 - **WebUI** at `/` — key management, TTS test bench (26 voices), engine status
