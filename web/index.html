@@ -81,7 +81,7 @@
   <span class="dot" id="statusDot"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.3</span>
+  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.4</span>
   <span style="flex:1"></span>
   <button id="logoutBtn" class="hidden">Sign out</button>
 </header>
@@ -150,6 +150,18 @@
       <div class="card">
         <h2>Service</h2>
         <div id="svcStatus" class="muted">checking…</div>
+        <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.7">
+          These endpoints are not set in this UI. ChimpFlow&rsquo;s listen address and the
+          audio.cpp URL are compile-time constants in <code>src/main.cpp</code> &mdash; change
+          them, then <code>cmake --build build &amp;&amp; bash install.sh</code> and
+          <code>systemctl --user restart chimpflow</code>.
+          The whisper.cpp endpoint and model are flags in
+          <code>~/.config/systemd/user/chimpflow-whisper.service</code>
+          (<code>--port</code>, <code>--model</code>) &mdash; use
+          <code>systemctl --user edit chimpflow-whisper</code>, then
+          <code>systemctl --user daemon-reload &amp;&amp; systemctl --user restart chimpflow-whisper</code>.
+          Keep <code>kSttModel</code> in src/main.cpp matching the service&rsquo;s <code>--model</code>.
+        </div>
       </div>
       <div class="card">
         <h2>audio.cpp <span class="muted" style="font-size:13px;font-weight:400">— TTS engine · http://127.0.0.1:8080</span></h2>
