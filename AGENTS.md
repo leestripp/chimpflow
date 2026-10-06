@@ -42,6 +42,8 @@ next to itself (web root resolves via /proc/self/exe).
 - `web/index.html` — self-contained admin SPA (vanilla JS, dark theme; see the
   global `webui-design` skill — select/option/button CSS is mandatory)
 - `demo/` — ChimpEcho parrot app (standalone CMake: gtkmm-4 + PipeWire + OmniNet)
+- `tests/` — zero-dep unit harness (`test_util.h`) + `integration.sh` live suite
+- `docs/design.md` — architecture, API design, invariants (read before structural changes)
 - `resources/` — static assets (chimp banner)
 - `data/` — runtime sqlite db (gitignored)
 - `Plan.md` — research history + DECISION (audio.cpp is the engine; all others rejected)
@@ -61,6 +63,11 @@ next to itself (web root resolves via /proc/self/exe).
 - OmniNet bug FIXED here: `TokenUtils.cpp` validated keys by splitting at the
   FIRST `_`, but keys are `omn_sk_<hex>_<secret>` — every key failed its own
   validator. Fix = split at `rfind('_')`. **Push upstream to GitLab (leestrip/OmniNet).**
+- Reused audio/state objects: re-arm one-shot latches in `start()` — ChimpEcho's
+  `Playback::notified` fired once ever, so the 2nd+ echo played but never
+  signaled done and the UI dead-locked (log showed `playback started` with no
+  `playback done`). Repro pattern for such bugs: extract the struct into a
+  tiny CLI harness (`/tmp/pw_repro*.cpp`), run under `timeout`, A/B the fix.
 - WebUI keeps the admin key in localStorage; keys are sha-hashed in sqlite.
 - Frontend-format workflow gotcha (ComfyUI side): prompt text lives in BOTH
   `widgets_values[0]` and `widgets_values_named.value` — patch both.

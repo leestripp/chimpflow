@@ -96,6 +96,7 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 | `POST /admin/keys` | `admin` | create key `{"name":"...","scopes":["tts"]}` → returns `rawKey` once |
 | `DELETE /admin/keys/<id>` | `admin` | revoke a key |
 | `GET /admin/engine/models` | `admin` | engine's model list (proxied) |
+| `GET /admin/engine/stt` | `admin` | whisper.cpp reachability + served model (`{"reachable":false}`, never 502) |
 | `GET /` | none | WebUI |
 
 ### Example
@@ -119,10 +120,15 @@ curl -X POST http://127.0.0.1:8090/v1/audio/speech \
 ```
 src/main.cpp    service: auth, routes, engine proxy, bootstrap
 web/index.html  self-contained admin SPA (no build step)
+demo/           ChimpEcho hold-to-talk demo client (standalone CMake)
+tests/          unit harness + live-service integration suite
+docs/design.md  architecture, API design, invariants
 resources/      static assets (banner, etc.)
 data/           runtime state (sqlite db) — created on first run, gitignored
 CMakeLists.txt  links OmniNet (prebuilt or from source)
 ```
+
+Design details live in [docs/design.md](docs/design.md).
 
 ## Roadmap
 
