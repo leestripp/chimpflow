@@ -272,6 +272,24 @@ std::optional<std::string> post(const std::string& path, const std::string& cont
     return body;
 }
 
+// GET — same timeout policy as post(), for the /v1/voices discovery call.
+std::optional<std::string> get(const std::string& path, std::string& err) {
+    ClientRequest req;
+    req.method("GET").url(g_base + path)
+       .header("Authorization", "Bearer " + g_key);
+    ClientConfig cfg;
+    cfg.connect_timeout = std::chrono::seconds(3);
+    cfg.request_timeout = std::chrono::seconds(10);
+    auto r = Client::get_instance().send_blocking(req, cfg);
+    if (!r) { err = "GET " + path + " failed (is ChimpFlow running?)"; return std::nullopt; }
+    const std::string body(reinterpret_cast<const char*>(r->body().data()), r->body().size());
+    if (r->status() != StatusCode::OK) {
+        err = "GET " + path + " -> HTTP " + std::to_string(static_cast<int>(r->status()));
+        return std::nullopt;
+    }
+    return body;
+}
+
 // ---- window ---------------------------------------------------------------
 struct EchoResult {
     bool ok = false;
@@ -293,6 +311,17 @@ public:
         title->set_markup("<b>ChimpEcho</b>\n<small>hold the button, say something — "
                           "ChimpFlow will say it back</small>");
         box->append(*title);
+
+        // Voice picker: populated from GET /v1/voices (worker thread below);
+        // starts as a single-entry list (g_voice) so the dropdown is usable
+        // even if the gateway is unreachable.
+        auto* voiceRow = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+        voiceRow->append(*Gtk::make_managed<Gtk::Label>("Voice"));
+        voiceModel_ = Gtk::StringList::create({Glib::ustring{g_voice}});
+        voiceDrop_.set_model(voiceModel_);
+        voiceDrop_.set_hexpand(true);
+        voiceRow->append(voiceDrop_);
+        box->append(*voiceRow);
 
         talk_.set_label("🎤\nHold to talk");
         talk_.set_size_request(170, 130);
@@ -317,16 +346,59 @@ public:
 
         playbackDone_.connect([this] { onPlaybackDone(); });
         workDone_.connect([this] { onWorkDone(); });
+        voicesLoaded_.connect([this] { onVoicesLoaded(); });
+        if (!g_key.empty()) {
+            voiceWorker_ = std::jthread([this] {
+                std::string err;
+                std::vector<std::string> ids;
+                if (auto r = get("/v1/voices", err)) {
+                    try {
+                        for (const auto& v : nlohmann::json::parse(*r).at("data"))
+                            ids.push_back(v.at("id").get<std::string>());
+                    } catch (const std::exception&) { err = "bad /v1/voices response"; }
+                }
+                voicesResult_ = std::move(ids);  // empty on failure -> keep fallback
+                voicesErr_ = std::move(err);
+                voicesLoaded_.emit();
+            });
+        }
         signal_close_request().connect([this] {
             logLine("window closing");
             capturing_ ? (void)capture_.stop() : void();
             playing_.stop();
             if (worker_.joinable()) worker_.join();
+            if (voiceWorker_.joinable()) voiceWorker_.join();
             return false;
         }, false);
     }
 
 private:
+    std::string selectedVoice() const {
+        const auto pos = voiceDrop_.get_selected();
+        if (voiceModel_ && pos != GTK_INVALID_LIST_POSITION)
+            return std::string{voiceModel_->get_string(pos)};
+        return g_voice;
+    }
+
+    // Worker fetched the catalog; replace the fallback list. Dispatcher
+    // gives the UI thread happens-before visibility into voicesResult_.
+    void onVoicesLoaded() {
+        if (!voicesResult_) return;
+        auto ids = std::move(*voicesResult_);
+        voicesResult_.reset();
+        if (ids.empty()) {
+            logLine("voices: /v1/voices unavailable (" + voicesErr_ + ") — keeping " + g_voice);
+            return;
+        }
+        const std::string current = selectedVoice();
+        voiceModel_ = Gtk::StringList::create(
+            std::vector<Glib::ustring>{ids.begin(), ids.end()});
+        voiceDrop_.set_model(voiceModel_);
+        for (guint i = 0; i < voiceModel_->get_n_items(); ++i)
+            if (voiceModel_->get_string(i) == current) { voiceDrop_.set_selected(i); break; }
+        logLine("voices: loaded " + std::to_string(ids.size()) + " from /v1/voices");
+    }
+
     void setBusy(bool busy) {
         talking_ = busy;
         talk_.set_sensitive(!busy);
@@ -381,8 +453,10 @@ private:
             while (!r.text.empty() && (r.text.back() == '\n' || r.text.back() == ' ')) r.text.pop_back();
             logLine("STT heard: \"" + r.text + "\"");
             if (r.text.empty()) { r.ok = true; finish(std::move(r)); return; }
+            const std::string voice = selectedVoice();
+            logLine("TTS voice: " + voice);
             nlohmann::json ttsReq = {{"model", "pocket-tts"}, {"input", r.text},
-                                     {"voice", g_voice}, {"response_format", "wav"}};
+                                     {"voice", voice}, {"response_format", "wav"}};
             auto tts = post("/v1/audio/speech", "application/json", ttsReq.dump(), err);
             if (!tts) { r.err = err; finish(std::move(r)); return; }
             if (!parseWav(*tts, r.rate, r.pcm)) { r.err = "couldn't parse TTS audio"; finish(std::move(r)); return; }
@@ -433,11 +507,15 @@ private:
 
     Gtk::Button talk_;
     Gtk::Label status_, heard_;
-    Glib::Dispatcher playbackDone_, workDone_;
+    Gtk::DropDown voiceDrop_;
+    Glib::RefPtr<Gtk::StringList> voiceModel_;
+    Glib::Dispatcher playbackDone_, workDone_, voicesLoaded_;
     Capture capture_;
     Playback playing_{playbackDone_};
     std::optional<EchoResult> result_;
-    std::jthread worker_;
+    std::optional<std::vector<std::string>> voicesResult_;
+    std::string voicesErr_;
+    std::jthread worker_, voiceWorker_;
     bool talking_ = false, capturing_ = false;
 };
 

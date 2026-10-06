@@ -25,4 +25,10 @@ instead of freezing the UI.
 
 Config via env: `CHIMPFLOW_URL` (default `http://127.0.0.1:8090`),
 `CHIMPFLOW_KEY` (default: reads `~/.local/share/chimpflow/ADMIN_KEY`),
-`CHIMPFLOW_VOICE` (default `alba`). The key needs the `stt` + `tts` scopes.
+`CHIMPFLOW_VOICE` (default `alba` — the initially selected entry in the
+voice dropdown). The key needs the `stt` + `tts` scopes.
+
+The voice dropdown is populated at startup from `GET /v1/voices` (fetched
+on a worker thread, so the window appears instantly). If the gateway is
+unreachable or voice listing is unconfigured (503), the dropdown falls
+back to the single `CHIMPFLOW_VOICE` entry.
