@@ -2,8 +2,8 @@
 
 ![ChimpFlow banner — a chimp with a megaphone on a cliff over a vast jungle](resources/chimpflow-banner.png)
 
-**Fully local voice service for Linux — no cloud, no API keys to anyone else.**
-TTS and STT behind your own API-key auth, with a dark web admin UI. Built on
+**Fully local voice service for Linux — no cloud**
+TTS and STT behind your own API-key auth, with a web admin UI. Built on
 **OmniNet** (C++23 HTTP/sqlite) with **audio.cpp** + **PocketTTS** (Vulkan) for
 speech and **whisper.cpp** + **ggml-tiny.en** for transcription. Every model
 runs on your machine; the only network use is the one-time download of model
@@ -23,6 +23,12 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
   per-key use counts, revocation, expiration support
 - **WebUI** at `/` — key management, TTS test bench (26 voices), engine status
 - **Bootstrap admin key** printed once on first run
+
+## Demo
+
+`demo/` holds **ChimpEcho**, a hold-to-talk parrot app (gtkmm-4 + PipeWire)
+that round-trips your voice through the service — STT then TTS. See
+[demo/README.md](demo/README.md).
 
 ## Build
 

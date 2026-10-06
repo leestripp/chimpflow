@@ -39,6 +39,7 @@ next to itself (web root resolves via /proc/self/exe).
   whenever routes change, so the guide never drifts from the code.
 - `web/index.html` — self-contained admin SPA (vanilla JS, dark theme; see the
   global `webui-design` skill — select/option/button CSS is mandatory)
+- `demo/` — ChimpEcho parrot app (standalone CMake: gtkmm-4 + PipeWire + OmniNet)
 - `resources/` — static assets (chimp banner)
 - `data/` — runtime sqlite db (gitignored)
 - `Plan.md` — research history + DECISION (audio.cpp is the engine; all others rejected)
