@@ -66,6 +66,7 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /healthz` | none | liveness |
+| `GET /skill/` + `/skill/manifest.json` | none | agent guide: how an AI agent should use this API (markdown + JSON twin) |
 | `POST /v1/audio/speech` | `tts` scope | TTS, body forwarded to the engine (OpenAI shape) |
 | `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
 | `POST /admin/keys` | `admin` | create key `{"name":"...","scopes":["tts"]}` → returns `rawKey` once |

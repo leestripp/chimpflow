@@ -30,7 +30,10 @@ next to itself (web root resolves via /proc/self/exe).
 
 ## Layout
 
-- `src/main.cpp` — all service code: auth, routes, engine proxy, bootstrap admin key
+- `src/main.cpp` — all service code: auth, routes, engine proxy, bootstrap admin key.
+  Agent-facing API guide is served at `/skill/` (markdown) and `/skill/manifest.json`
+  (structured twin) — update `kSkillMd`/`kSkillManifest` in the anonymous namespace
+  whenever routes change, so the guide never drifts from the code.
 - `web/index.html` — self-contained admin SPA (vanilla JS, dark theme; see the
   global `webui-design` skill — select/option/button CSS is mandatory)
 - `resources/` — static assets (chimp banner)

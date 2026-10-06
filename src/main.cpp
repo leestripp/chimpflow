@@ -42,6 +42,127 @@ void sendJson(Response& resp, StatusCode code, std::string_view body) {
     resp.setBody(body);
 }
 
+// Agent-facing guide to this API, served at /skill/ (see README "Skill endpoint").
+// Written for an AI agent reader: task-oriented, exact request shapes, honest errors.
+constexpr std::string_view kSkillMd = R"CHIMP(---
+name: chimpflow-tts
+description: Local text-to-speech for AI agents on this machine. Use whenever a task needs spoken audio — WAV narration, voice output, read-aloud. Runs on localhost, no cloud, OpenAI-compatible endpoint.
+version: 0.1.0
+service: chimpflow
+base_url: http://127.0.0.1:8090
+---
+
+# ChimpFlow — local TTS gateway for agents
+
+ChimpFlow is a localhost-only voice service. It checks API keys and proxies
+text-to-speech to the audio.cpp engine. It never leaves this machine.
+
+## Authentication
+
+Every route except `/healthz` and `/skill/` requires a bearer key:
+
+    Authorization: Bearer omn_sk_...
+
+Keys carry scopes: `admin` (key management), `tts` (speech), `stt` (reserved
+for the future STT route). If you do not have a key, ask the human operator —
+or create one with an admin key (below). The WebUI at the base URL manages
+keys interactively.
+
+## Endpoints
+
+### GET /healthz — no auth
+
+    curl -s http://127.0.0.1:8090/healthz
+    {"status":"ok","service":"chimpflow"}
+
+### POST /v1/audio/speech — scope: tts
+
+OpenAI-compatible speech endpoint. Request body:
+
+    {
+      "model": "pocket-tts",      // as listed by GET /admin/engine/models
+      "input": "Text to speak.",
+      "voice": "alba",            // voice name from the engine's model list
+      "response_format": "wav"    // format the engine supports
+    }
+
+Example:
+
+    curl -s -X POST http://127.0.0.1:8090/v1/audio/speech \
+      -H "Authorization: Bearer $KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"wav"}' \
+      -o speech.wav
+
+Returns the audio bytes (Content-Type audio/wav; PCM 16-bit mono 24 kHz for
+pocket-tts) on success, JSON error otherwise. The body is forwarded to the
+engine as-is, so engine-specific extra fields pass through.
+
+### GET /admin/keys — scope: admin
+
+    curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8090/admin/keys
+
+Returns an array of keys: id, name, scopes, useCount, revoked, expired, createdAt.
+
+### POST /admin/keys — scope: admin
+
+    curl -s -X POST http://127.0.0.1:8090/admin/keys \
+      -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
+      -d '{"name":"my-agent","scopes":["tts"]}'
+    {"id":"...","rawKey":"omn_sk_..."}
+
+`rawKey` is returned ONCE. Store it in the environment or a secrets store,
+never in a committed file. If lost, revoke and recreate.
+
+### DELETE /admin/keys/<id> — scope: admin
+
+    curl -s -X DELETE -H "Authorization: Bearer $ADMIN_KEY" \
+      http://127.0.0.1:8090/admin/keys/<id>
+    {"ok":true}
+
+### GET /admin/engine/models — scope: admin
+
+Models, voices, and speaker embeddings currently loaded in the engine.
+Use it to discover valid `model` and `voice` values for the speech route.
+
+## Error shape
+
+All errors are JSON: {"error":"human-readable message"}
+
+    401  missing or invalid api key
+    403  valid key, missing required scope
+    502  engine unreachable (the audio.cpp server on :8080 is down)
+
+## Agent notes
+
+- localhost only: 127.0.0.1:8090. Never send these keys or text anywhere else.
+- If speech returns 502, the engine server is down — tell the human operator
+  instead of retrying in a loop.
+- Check /healthz before a batch job; one bad key will 401 every call in it.
+- Voices are engine-loaded speaker embeddings; the right values come from
+  GET /admin/engine/models, not from memory.
+)CHIMP";
+
+// Same guide as structured data, for agent frameworks that prefer JSON.
+constexpr std::string_view kSkillManifest = R"CHIMP({
+  "name": "chimpflow-tts",
+  "description": "Local text-to-speech for AI agents on this machine. Use whenever a task needs spoken audio — WAV narration, voice output, read-aloud. Runs on localhost, no cloud, OpenAI-compatible endpoint.",
+  "version": "0.1.0",
+  "base_url": "http://127.0.0.1:8090",
+  "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "scopes": ["admin", "tts", "stt"]},
+  "endpoints": [
+    {"method": "GET",  "path": "/healthz",              "auth": "none"},
+    {"method": "GET",  "path": "/skill/",               "auth": "none", "notes": "this document, markdown"},
+    {"method": "GET",  "path": "/skill/manifest.json",  "auth": "none", "notes": "this document, structured"},
+    {"method": "POST", "path": "/v1/audio/speech",      "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "pocket-tts", "input": "text", "voice": "alba", "response_format": "wav"}, "returns": "audio bytes (WAV)"},
+    {"method": "GET",  "path": "/admin/keys",           "auth": "bearer", "scope": "admin"},
+    {"method": "POST", "path": "/admin/keys",           "auth": "bearer", "scope": "admin", "body": {"name": "key name", "scopes": ["tts"]}, "notes": "rawKey returned once"},
+    {"method": "DELETE", "path": "/admin/keys/{id}",    "auth": "bearer", "scope": "admin"},
+    {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "discover model/voice values"}
+  ],
+  "errors": {"shape": {"error": "message"}, "401": "missing/invalid key", "403": "missing scope", "502": "engine down"}
+})CHIMP";
+
 }  // namespace
 
 int main() {
@@ -74,6 +195,20 @@ int main() {
     // Health (open)
     server.get("/healthz", [](const Request&, Response& resp) {
         sendJson(resp, StatusCode::OK, R"({"status":"ok","service":"chimpflow"})");
+    });
+
+    // Agent skill doc: how an AI agent should use this API (open, like /healthz).
+    // Human-readable markdown at /skill/ and /skill; machine-readable twin at
+    // /skill/manifest.json for agent frameworks that prefer structured data.
+    auto serveSkill = [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+        resp.setContentType("text/markdown; charset=utf-8");
+        resp.setBody(kSkillMd);
+    };
+    server.get("/skill", serveSkill);
+    server.get("/skill/", serveSkill);
+    server.get("/skill/manifest.json", [](const Request&, Response& resp) {
+        sendJson(resp, StatusCode::OK, kSkillManifest);
     });
 
     // TTS: POST /v1/audio/speech  (OpenAI-compatible, proxied to audio.cpp)
@@ -188,6 +323,7 @@ int main() {
 
     std::cout << "ChimpFlow listening on http://127.0.0.1:8090\n"
               << "  /healthz            (open)\n"
+              << "  /skill/             (open — agent guide, markdown + manifest.json)\n"
               << "  /v1/audio/speech    (Bearer key, 'tts' scope)\n"
               << "  /admin/keys         (Bearer key, 'admin' scope)\n";
     server.start();
