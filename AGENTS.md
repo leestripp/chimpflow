@@ -71,6 +71,20 @@ next to itself (web root resolves via /proc/self/exe).
 - WebUI keeps the admin key in localStorage; keys are sha-hashed in sqlite.
 - Frontend-format workflow gotcha (ComfyUI side): prompt text lives in BOTH
   `widgets_values[0]` and `widgets_values_named.value` — patch both.
+- Deployed-WebUI verification has three layers — check in order before believing
+  a "still broken" report: (1) `curl` the served bytes, (2) render in a fresh
+  browser and read the DOM, (3) `journalctl --user -u chimpflow | grep "succeeded
+  - path"` to see whether the user's browser ever re-fetched. A browser held a
+  pre-fix page for ~2h while every server-side check passed — the request log
+  proved zero fetches from it.
+- Single-file SPAs cache heuristically and hard: serve `index.html` with
+  `Cache-Control: no-cache` and **bump the visible header badge on every WebUI
+  change** so stale renders are self-diagnosing (badge is in the header next to
+  the status dot).
+- Status-page clarity: one card per engine, titled with the binary name
+  (`audio.cpp`, `whisper.cpp`) + role + endpoint + loaded model file.
+  Ambiguous headings ("Engine models") caused a multi-round confusion spiral —
+  name things so a stranger knows exactly what's running on the system.
 
 ## Conventions
 

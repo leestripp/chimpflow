@@ -71,9 +71,14 @@ auth/proxy layer; splitting it would add ceremony, not clarity):
 ### WebUI
 
 Three tabs: **Keys** (create/revoke, scopes checkboxes), **TTS** (test bench,
-voice dropdown from `/v1/models`), **Status** (service health, audio.cpp
-models, whisper.cpp reachability + served model via `/admin/engine/stt`).
-The admin key lives in `localStorage` (localhost-only trade-off, documented).
+voice dropdown from `/v1/models`), **Status** (service health plus **one full
+card per engine** — an `audio.cpp` card for TTS and a `whisper.cpp` card for
+STT, each showing endpoint, reachability dot, and loaded model; the audio.cpp
+card also shows the model file path). The header carries a visible build
+badge (`v0.1.3`) so a stale cached render is self-diagnosing. `index.html`
+is served with `Cache-Control: no-cache` because a single-file SPA otherwise
+heuristically caches. The admin key lives in `localStorage` (localhost-only
+trade-off, documented).
 
 ### ChimpEcho demo (`demo/`)
 
@@ -182,6 +187,17 @@ re-running `install.sh` after web changes.
 - `/skill` guide + manifest must be updated with any route change.
 - `kSttModel` must match `chimpflow-whisper.service --model`.
 - WebUI changes require re-running `install.sh` to reach the served copy.
+- **Bump the header badge on every WebUI change** (`web/index.html`, currently
+  `v0.1.3`). The badge + `no-cache` exist because heuristic browser caching
+  showed a user a pre-fix page for hours while `curl` proved the server was
+  correct. Verify UI complaints at three layers: served bytes (`curl`), a
+  fresh-browser render, and the request log
+  (`journalctl --user -u chimpflow | grep "succeeded - path"`) showing whether
+  the browser even re-fetched.
+- **Status tab = one card per engine, named for the binary** (`audio.cpp` /
+  `whisper.cpp`) with role, endpoint, and model. Vague headings ("Engine
+  models") read as ambiguous — name things so a first-time user knows exactly
+  what is running on the machine.
 - **PipeWire:** never call `pw_thread_loop_stop()` while holding
   `pw_thread_loop_lock()` — join-vs-lock deadlock (froze the demo UI).
   Order: lock → `pw_stream_destroy` → unlock → stop. Full list in

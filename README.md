@@ -21,7 +21,10 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
 - **Fully local**: all inference on your hardware — no external API calls, works offline
 - **Scoped API keys**: `tts` / `stt` / `admin` scopes, hashed at rest in sqlite,
   per-key use counts, revocation, expiration support
-- **WebUI** at `/` — key management, TTS test bench (26 voices), engine status (TTS + STT)
+- **WebUI** at `/` — key management, TTS test bench (26 voices), Status tab with
+  **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
+  each showing endpoint, reachability, and loaded model; the header carries a build
+  badge (currently `v0.1.3`) so a stale cached page is self-evident
 - **Bootstrap admin key** printed once on first run
 
 ## Tests
