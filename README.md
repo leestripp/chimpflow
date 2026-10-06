@@ -66,6 +66,8 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /healthz` | none | liveness |
+| `GET /v1/models` | any valid key | engine model/voice list (proxied) |
+| `POST /v1/audio/transcriptions` | `stt` scope | STT, multipart `file` forwarded to whisper.cpp (`{"text":"..."}`) |
 | `GET /skill/` + `/skill/manifest.json` | none | agent guide: how an AI agent should use this API (markdown + JSON twin) |
 | `POST /v1/audio/speech` | `tts` scope | TTS, body forwarded to the engine (OpenAI shape) |
 | `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
@@ -102,7 +104,7 @@ CMakeLists.txt  links OmniNet (prebuilt or from source)
 
 ## Roadmap
 
-- whisper.cpp STT route (`/v1/audio/transcriptions`)
+- ~~whisper.cpp STT route~~ done: `/v1/audio/transcriptions` via local whisper.cpp on :8081 (`ggml-tiny.en`)
 - Model management in the WebUI (download/enable via audio.cpp GGUF registry)
 - Rate limiting per key
 

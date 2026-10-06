@@ -17,8 +17,10 @@ using namespace OmniNet::HTTP;
 
 namespace {
 
-// Engine endpoint (audio.cpp server)
+// Engine endpoint (audio.cpp TTS server)
 constexpr std::string_view kEngineBase = "http://127.0.0.1:8080";
+// Transcription endpoint (whisper.cpp server; see chimpflow-whisper.service)
+constexpr std::string_view kSttBase = "http://127.0.0.1:8081";
 
 
 // Locate the web/ dir next to the executable (independent of CWD)
@@ -59,12 +61,13 @@ text-to-speech to the audio.cpp engine. It never leaves this machine.
 
 ## Authentication
 
-Every route except `/healthz` and `/skill/` requires a bearer key:
+Every route except `/healthz` and `/skill/` requires a bearer key.
+Any valid key works for `/v1/models`; the rest additionally check scopes:
 
     Authorization: Bearer omn_sk_...
 
-Keys carry scopes: `admin` (key management), `tts` (speech), `stt` (reserved
-for the future STT route). If you do not have a key, ask the human operator —
+Keys carry scopes: `admin` (key management), `tts` (speech),
+`stt` (transcription). If you do not have a key, ask the human operator —
 or create one with an admin key (below). The WebUI at the base URL manages
 keys interactively.
 
@@ -80,7 +83,7 @@ keys interactively.
 OpenAI-compatible speech endpoint. Request body:
 
     {
-      "model": "pocket-tts",      // as listed by GET /admin/engine/models
+      "model": "pocket-tts",      // as listed by GET /v1/models
       "input": "Text to speak.",
       "voice": "alba",            // voice name from the engine's model list
       "response_format": "wav"    // format the engine supports
@@ -120,10 +123,26 @@ never in a committed file. If lost, revoke and recreate.
       http://127.0.0.1:8090/admin/keys/<id>
     {"ok":true}
 
-### GET /admin/engine/models — scope: admin
+### POST /v1/audio/transcriptions — scope: stt
+
+OpenAI-compatible transcription. Multipart upload, forwarded to whisper.cpp:
+
+    curl -s -X POST http://127.0.0.1:8090/v1/audio/transcriptions \
+      -H "Authorization: Bearer $KEY" \
+      -F file=@speech.wav \
+      -F model=whisper
+
+Returns JSON {"text":"..."} (verbose_json / other formats as the engine supports).
+Any audio format whisper.cpp accepts (wav, mp3, ogg, ...); 16 kHz mono WAV is the
+safest. Keep clips modest — the gateway rejects bodies over 10 MB.
+
+### GET /v1/models — any valid key
+
+    curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8090/v1/models
 
 Models, voices, and speaker embeddings currently loaded in the engine.
 Use it to discover valid `model` and `voice` values for the speech route.
+(The same list is also at `/admin/engine/models` for admin keys.)
 
 ## Error shape
 
@@ -154,6 +173,8 @@ constexpr std::string_view kSkillManifest = R"CHIMP({
     {"method": "GET",  "path": "/healthz",              "auth": "none"},
     {"method": "GET",  "path": "/skill/",               "auth": "none", "notes": "this document, markdown"},
     {"method": "GET",  "path": "/skill/manifest.json",  "auth": "none", "notes": "this document, structured"},
+    {"method": "GET",  "path": "/v1/models",            "auth": "bearer", "notes": "no scope required; discover model/voice values"},
+    {"method": "POST", "path": "/v1/audio/transcriptions", "auth": "bearer", "scope": "stt", "content_type": "multipart/form-data", "body": {"file": "@audio.wav", "model": "whisper"}, "returns": "JSON {\"text\":\"...\"}"},
     {"method": "POST", "path": "/v1/audio/speech",      "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "pocket-tts", "input": "text", "voice": "alba", "response_format": "wav"}, "returns": "audio bytes (WAV)"},
     {"method": "GET",  "path": "/admin/keys",           "auth": "bearer", "scope": "admin"},
     {"method": "POST", "path": "/admin/keys",           "auth": "bearer", "scope": "admin", "body": {"name": "key name", "scopes": ["tts"]}, "notes": "rawKey returned once"},
@@ -241,6 +262,56 @@ int main() {
         resp.setBody(er.body());
     });
 
+    // STT: POST /v1/audio/transcriptions (OpenAI-compatible, proxied to whisper.cpp)
+    // The multipart body is forwarded byte-for-byte — ChimpFlow never parses it,
+    // so it stays a pure auth gateway (10MB OmniNet body limit applies).
+    server.post("/v1/audio/transcriptions", [&keys](const Request& req, Response& resp) {
+        auto tok = bearerToken(req);
+        if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
+            R"({"error":"missing Authorization: Bearer <api_key>"})");
+        auto v = keys.validateAndUse(tok, req.headerOr("X-Forwarded-For", "127.0.0.1"));
+        if (!v.valid) {
+            nlohmann::json err = {{"error", "invalid api key: " + v.error}};
+            return sendJson(resp, StatusCode::UNAUTHORIZED, err.dump());
+        }
+        if (!v.key->hasScope("stt"))
+            return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"key lacks 'stt' scope"})");
+
+        ClientRequest fwd;
+        fwd.method("POST").url(std::string(kSttBase) + "/inference")
+           .header("Content-Type", req.headerOr("Content-Type", "multipart/form-data"))
+           .body(req.bodyAsString());
+        auto r = Client::get_instance().send_blocking(fwd);
+        if (!r) {
+            return sendJson(resp, StatusCode::BAD_GATEWAY,
+                R"({"error":"transcription engine unreachable"})");
+        }
+        resp.setStatus(r->status());
+        resp.setContentType(r->header("Content-Type").empty()
+                            ? "application/json" : r->header("Content-Type"));
+        resp.setBody(r->body());
+    });
+
+    // Model discovery: any valid key lists engine models (model/voice values
+    // for the speech route). Deliberately not admin-gated.
+    server.get("/v1/models", [&keys](const Request& req, Response& resp) {
+        auto tok = bearerToken(req);
+        if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
+            R"({"error":"missing Authorization: Bearer <api_key>"})");
+        auto v = keys.validateAndUse(tok, req.headerOr("X-Forwarded-For", "127.0.0.1"));
+        if (!v.valid) {
+            nlohmann::json err = {{"error", "invalid api key: " + v.error}};
+            return sendJson(resp, StatusCode::UNAUTHORIZED, err.dump());
+        }
+        ClientRequest fwd;
+        fwd.method("GET").url(std::string(kEngineBase) + "/v1/models");
+        auto r = Client::get_instance().send_blocking(fwd);
+        if (!r) return sendJson(resp, StatusCode::BAD_GATEWAY, R"({"error":"engine unreachable"})");
+        resp.setStatus(r->status());
+        resp.setContentType("application/json");
+        resp.setBody(r->bodyAsStringView());
+    });
+
     // --- Admin API (admin scope required) ---
     auto requireAdmin = [&keys](const Request& req,
                                 Token::ApiKeyStore::ValidationResult& out) {
@@ -324,7 +395,9 @@ int main() {
     std::cout << "ChimpFlow listening on http://127.0.0.1:8090\n"
               << "  /healthz            (open)\n"
               << "  /skill/             (open — agent guide, markdown + manifest.json)\n"
+              << "  /v1/models         (Bearer key, any valid)\n"
               << "  /v1/audio/speech    (Bearer key, 'tts' scope)\n"
+              << "  /v1/audio/transcriptions (Bearer key, 'stt' scope)\n"
               << "  /admin/keys         (Bearer key, 'admin' scope)\n";
     server.start();
     OmniNet::cleanup();

@@ -4,7 +4,9 @@
 
 Local voice service: API-key auth + WebUI (OmniNet/C++23) proxying an
 audio.cpp server (PocketTTS today; whisper.cpp STT planned). Listens on
-127.0.0.1:8090; engine at 127.0.0.1:8080.
+127.0.0.1:8090; TTS engine at 127.0.0.1:8080; whisper.cpp STT at
+127.0.0.1:8081 (~/Apps/whisper.cpp, ggml-tiny.en, systemd user unit
+chimpflow-whisper.service).
 
 ## Commands
 
