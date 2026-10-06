@@ -85,6 +85,12 @@ next to itself (web root resolves via /proc/self/exe).
   (`audio.cpp`, `whisper.cpp`) + role + endpoint + loaded model file.
   Ambiguous headings ("Engine models") caused a multi-round confusion spiral —
   name things so a stranger knows exactly what's running on the system.
+- PipeWire playback "done" must mean **PLAYED, not QUEUED**: signaling
+  completion when the last sample is copied into a stream buffer makes
+  stop() destroy the stream with the tail still queued -> randomly cut-off
+  audio (ChimpEcho clipped TTS tails). Correct pattern: on queue-empty call
+  pw_stream_flush(stream, true) and emit done from the stream events'
+  `drained` callback.
 
 ## Conventions
 

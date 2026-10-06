@@ -174,12 +174,23 @@ struct Playback {
                     d.chunk->size = frames * sizeof(float);
                     if (self->queue.empty() && !self->notified) {
                         self->notified = true;
-                        self->done.emit();
+                        // All samples are handed to the stream but NOT yet
+                        // heard: signaling done here made stop() destroy the
+                        // stream with the tail still queued -> cut-off audio.
+                        // Ask PipeWire to play everything out and signal
+                        // done from onDrained instead.
+                        pw_stream_flush(self->stream, true);
                     }
                 }
             }
             pw_stream_queue_buffer(self->stream, b);
         }
+    }
+
+    static void onDrained(void* userdata) {
+        auto* self = static_cast<Playback*>(userdata);
+        logLine("playback drained");   // all queued samples actually played
+        self->done.emit();
     }
 
     void start(std::uint32_t rate, std::vector<float> samples) {
@@ -190,6 +201,7 @@ struct Playback {
         }                      // playback never signals and the UI dead-locks
         static pw_stream_events events = {PW_VERSION_STREAM_EVENTS, nullptr, nullptr, nullptr};
         events.process = &Playback::onProcess;
+        events.drained = &Playback::onDrained;
         loop = pw_thread_loop_new("chimpecho-play", nullptr);
         pw_properties* props = pw_properties_new(
             PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Playback",
