@@ -6,6 +6,7 @@
 #include "http/StaticHandler.h"
 #include "token/ApiKey.h"
 #include <nlohmann/json.hpp>
+#include <cstdlib>
 #include <filesystem>
 
 #include <iostream>
@@ -17,14 +18,22 @@ using namespace OmniNet::HTTP;
 
 namespace {
 
+// Defaults for the CHIMPFLOW_* environment variables (see chimpflow.env,
+// loaded via systemd EnvironmentFile= — install.sh creates the file).
 // Engine endpoint (audio.cpp TTS server)
 constexpr std::string_view kEngineBase = "http://127.0.0.1:8080";
 // Transcription endpoint (whisper.cpp server; see chimpflow-whisper.service)
 constexpr std::string_view kSttBase = "http://127.0.0.1:8081";
 // Model the companion whisper service serves. whisper-server has no
-// model-listing endpoint, so the status route reports this constant — keep
-// it in sync with chimpflow-whisper.service's --model flag.
+// model-listing endpoint, so the status route reports this value — the
+// whisper unit reads the same CHIMPFLOW_STT_MODEL var (single source).
 constexpr std::string_view kSttModel = "ggml-tiny.en";
+
+// Environment override: empty/unset falls back to the compiled default.
+std::string envOr(const char* name, std::string_view fallback) {
+    if (const char* v = std::getenv(name); v && *v != '\0') return v;
+    return std::string(fallback);
+}
 
 
 // Locate the web/ dir next to the executable (independent of CWD)
@@ -214,9 +223,20 @@ int main() {
     }
 
     // --- HTTP server ---
+    // --- Config: CHIMPFLOW_* env overrides with localhost defaults ---
+    const std::string cfgListenHost = envOr("CHIMPFLOW_LISTEN_HOST", "127.0.0.1");
+    const unsigned short cfgListenPort = static_cast<unsigned short>(
+        std::stoul(envOr("CHIMPFLOW_LISTEN_PORT", "8090")));
+    const std::string cfgEngineBase = envOr("CHIMPFLOW_ENGINE_URL", kEngineBase);
+    const std::string cfgSttBase    = envOr("CHIMPFLOW_STT_URL", kSttBase);
+    const std::string cfgSttModel   = envOr("CHIMPFLOW_STT_MODEL", kSttModel);
+    std::cout << "[chimpflow] listen=" << cfgListenHost << ":" << cfgListenPort
+              << " engine=" << cfgEngineBase
+              << " stt=" << cfgSttBase << " sttModel=" << cfgSttModel << "\n";
+
     Server::Config serverConfig;
-    serverConfig.address = "127.0.0.1";   // localhost service; set 0.0.0.0 only if exposing to LAN
-    serverConfig.port = 8090;
+    serverConfig.address = cfgListenHost;  // localhost service; set 0.0.0.0 only if exposing to LAN
+    serverConfig.port = cfgListenPort;
     Server server(serverConfig);
 
     // Health (open)
@@ -239,7 +259,7 @@ int main() {
     });
 
     // TTS: POST /v1/audio/speech  (OpenAI-compatible, proxied to audio.cpp)
-    server.post("/v1/audio/speech", [&keys](const Request& req, Response& resp) {
+    server.post("/v1/audio/speech", [&keys, &cfgEngineBase](const Request& req, Response& resp) {
         auto tok = bearerToken(req);
         if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
             R"({"error":"missing Authorization: Bearer <api_key>"})");
@@ -253,7 +273,7 @@ int main() {
 
         // Forward the request body as-is to the engine
         ClientRequest fwd;
-        fwd.method("POST").url(std::string(kEngineBase) + "/v1/audio/speech")
+        fwd.method("POST").url(cfgEngineBase + "/v1/audio/speech")
            .header("Content-Type", "application/json")
            .body(req.bodyAsString());
         auto r = Client::get_instance().send_blocking(fwd);
@@ -271,7 +291,7 @@ int main() {
     // STT: POST /v1/audio/transcriptions (OpenAI-compatible, proxied to whisper.cpp)
     // The multipart body is forwarded byte-for-byte — ChimpFlow never parses it,
     // so it stays a pure auth gateway (10MB OmniNet body limit applies).
-    server.post("/v1/audio/transcriptions", [&keys](const Request& req, Response& resp) {
+    server.post("/v1/audio/transcriptions", [&keys, &cfgSttBase](const Request& req, Response& resp) {
         auto tok = bearerToken(req);
         if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
             R"({"error":"missing Authorization: Bearer <api_key>"})");
@@ -284,7 +304,7 @@ int main() {
             return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"key lacks 'stt' scope"})");
 
         ClientRequest fwd;
-        fwd.method("POST").url(std::string(kSttBase) + "/inference")
+        fwd.method("POST").url(cfgSttBase + "/inference")
            .header("Content-Type", req.headerOr("Content-Type", "multipart/form-data"))
            .body(req.bodyAsString());
         auto r = Client::get_instance().send_blocking(fwd);
@@ -300,7 +320,7 @@ int main() {
 
     // Model discovery: any valid key lists engine models (model/voice values
     // for the speech route). Deliberately not admin-gated.
-    server.get("/v1/models", [&keys](const Request& req, Response& resp) {
+    server.get("/v1/models", [&keys, &cfgEngineBase](const Request& req, Response& resp) {
         auto tok = bearerToken(req);
         if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
             R"({"error":"missing Authorization: Bearer <api_key>"})");
@@ -310,7 +330,7 @@ int main() {
             return sendJson(resp, StatusCode::UNAUTHORIZED, err.dump());
         }
         ClientRequest fwd;
-        fwd.method("GET").url(std::string(kEngineBase) + "/v1/models");
+        fwd.method("GET").url(cfgEngineBase + "/v1/models");
         auto r = Client::get_instance().send_blocking(fwd);
         if (!r) return sendJson(resp, StatusCode::BAD_GATEWAY, R"({"error":"engine unreachable"})");
         resp.setStatus(r->status());
@@ -376,12 +396,12 @@ int main() {
     });
 
     // Engine models (proxied from audio.cpp, admin only)
-    server.get("/admin/engine/models", [&requireAdmin](const Request& req, Response& resp) {
+    server.get("/admin/engine/models", [&requireAdmin, &cfgEngineBase](const Request& req, Response& resp) {
         Token::ApiKeyStore::ValidationResult v;
         if (!requireAdmin(req, v))
             return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
         ClientRequest fwd;
-        fwd.method("GET").url(std::string(kEngineBase) + "/v1/models");
+        fwd.method("GET").url(cfgEngineBase + "/v1/models");
         auto r = Client::get_instance().send_blocking(fwd);
         if (!r) return sendJson(resp, StatusCode::BAD_GATEWAY, R"({"error":"engine unreachable"})");
         resp.setStatus(r->status());
@@ -391,20 +411,20 @@ int main() {
 
     // STT engine status (whisper.cpp reachability + served model, admin only).
     // Never 502s: reports {"reachable":false} so the WebUI can show it.
-    server.get("/admin/engine/stt", [&requireAdmin](const Request& req, Response& resp) {
+    server.get("/admin/engine/stt", [&](const Request& req, Response& resp) {
         Token::ApiKeyStore::ValidationResult v;
         if (!requireAdmin(req, v))
             return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
         ClientRequest fwd;
-        fwd.method("GET").url(std::string(kSttBase) + "/health");
+        fwd.method("GET").url(cfgSttBase + "/health");
         OmniNet::HTTP::ClientConfig cfg;
         cfg.connect_timeout = std::chrono::seconds(2);
         cfg.request_timeout = std::chrono::seconds(4);
         const bool up = Client::get_instance().send_blocking(fwd, cfg).has_value();
         nlohmann::json out = {
             {"engine", "whisper.cpp"},
-            {"model", std::string(kSttModel)},
-            {"url", std::string(kSttBase)},
+            {"model", cfgSttModel},
+            {"url", cfgSttBase},
             {"reachable", up},
         };
         sendJson(resp, StatusCode::OK, out.dump());

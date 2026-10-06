@@ -24,7 +24,7 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
 - **WebUI** at `/` — key management, TTS test bench (26 voices), Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.1.4`) so a stale cached page is self-evident
+  badge (currently `v0.1.5`) so a stale cached page is self-evident
 - **Bootstrap admin key** printed once on first run
 
 ## Tests

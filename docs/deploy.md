@@ -15,6 +15,7 @@ before touching anything.
 
 - `~/.local/lib/chimpflow/` — binary + `web/` (the WebUI served at `/`)
 - `~/.local/share/chimpflow/` — service `WorkingDirectory`
+  - `chimpflow.env` — configuration: `CHIMPFLOW_*` env vars read by BOTH services (see below)
   - `data/chimpflow.db` — API key store (sha-hashed keys, usage counts)
   - `ADMIN_KEY` — bootstrap admin key, mode 600 (created by `install.sh` on a fresh db)
 - `~/.config/systemd/user/` — `chimpflow.service`, `chimpflow-whisper.service`
@@ -50,7 +51,8 @@ Description=whisper.cpp server for ChimpFlow STT (local model, localhost only)
 
 [Service]
 Type=simple
-ExecStart=%h/Apps/whisper.cpp/build/bin/whisper-server --host 127.0.0.1 --port 8081 --model %h/Apps/whisper.cpp/models/ggml-tiny.en.bin
+EnvironmentFile=-%h/.local/share/chimpflow/chimpflow.env
+ExecStart=%h/Apps/whisper.cpp/build/bin/whisper-server --host 127.0.0.1 --port 8081 --model %h/Apps/whisper.cpp/models/${CHIMPFLOW_STT_MODEL}.bin
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
@@ -89,15 +91,24 @@ current ones (see `docs/design.md` invariants).
 
 ## Configuration
 
-There is no config file. Two surfaces:
+One env file: `~/.local/share/chimpflow/chimpflow.env`, created by `install.sh`
+with defaults. Both `chimpflow.service` and `chimpflow-whisper.service` load it
+via `EnvironmentFile=-` (the leading `-` means the file may be absent — the
+compiled-in defaults in `src/main.cpp` then apply). Edit it, then
+`systemctl --user restart chimpflow chimpflow-whisper`.
 
-- **chimpflow itself** — compile-time constants in `src/main.cpp`: listen
-  address (`serverConfig` in `main()`, 127.0.0.1:8090), `kEngineBase`
-  (audio.cpp URL), `kSttModel`, and the whisper URL constant. Change →
-  `cmake --build build` → `bash install.sh` → restart.
-- **engines** — flags: whisper `--port`/`--model` in its unit; audio.cpp
-  `server.json` + CLI. **Invariant:** `kSttModel` in `src/main.cpp` must match
-  the whisper unit's `--model`, or the status page lies about the served model.
+| Variable | Default | Meaning |
+|---|---|---|
+| `CHIMPFLOW_LISTEN_HOST` | `127.0.0.1` | chimpflow bind address |
+| `CHIMPFLOW_LISTEN_PORT` | `8090` | chimpflow port |
+| `CHIMPFLOW_ENGINE_URL` | `http://127.0.0.1:8080` | audio.cpp TTS engine |
+| `CHIMPFLOW_STT_URL` | `http://127.0.0.1:8081` | whisper.cpp STT engine |
+| `CHIMPFLOW_STT_MODEL` | `ggml-tiny.en` | whisper model basename; the whisper unit appends `.bin`, so this one value drives both the status page and the service's `--model` |
+
+The effective values are logged at startup
+(`journalctl --user -u chimpflow`) as
+`[chimpflow] listen=… engine=… stt=… sttModel=…`. audio.cpp itself keeps its
+own `server.json` + CLI flags.
 
 ## Verification
 

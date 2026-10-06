@@ -6,8 +6,13 @@ APP=chimpflow
 LIB="$HOME/.local/lib/$APP"            # binary + web/
 DATA="$HOME/.local/share/$APP"         # WorkingDirectory; holds data/ + ADMIN_KEY
 UNIT_DIR="$HOME/.config/systemd/user"
-PORT=8090
-ENGINE_URL="http://127.0.0.1:8080"
+ENV_FILE="$DATA/chimpflow.env"          # systemd EnvironmentFile for both services
+# Respect an existing env file when installing (it overrides the defaults below)
+if [[ -f "$ENV_FILE" ]]; then
+  source "$ENV_FILE"
+fi
+PORT="${CHIMPFLOW_LISTEN_PORT:-8090}"
+ENGINE_URL="${CHIMPFLOW_ENGINE_URL:-http://127.0.0.1:8080}"
 
 echo "==> Building ($APP)"
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -16,6 +21,22 @@ cmake --build build -j"$(nproc)"
 echo "==> Installing to ~/.local (cmake --install)"
 mkdir -p "$DATA/data" "$UNIT_DIR"
 cmake --install build --prefix "$HOME/.local"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+cat > "$ENV_FILE" << 'ENV'
+# ChimpFlow configuration — systemd EnvironmentFile, read by chimpflow.service
+# and chimpflow-whisper.service. Edit, then restart both:
+#   systemctl --user restart chimpflow chimpflow-whisper
+CHIMPFLOW_LISTEN_HOST=127.0.0.1
+CHIMPFLOW_LISTEN_PORT=8090
+CHIMPFLOW_ENGINE_URL=http://127.0.0.1:8080
+CHIMPFLOW_STT_URL=http://127.0.0.1:8081
+# Whisper model basename (the whisper unit appends .bin). Single source for
+# both the status page and the whisper service's --model.
+CHIMPFLOW_STT_MODEL=ggml-tiny.en
+ENV
+  echo "==> Created $ENV_FILE (defaults)"
+fi
 
 echo "==> Stopping any dev instance on :$PORT"
 pkill -x "$APP" 2>/dev/null && sleep 1 || true
@@ -28,6 +49,7 @@ Description=ChimpFlow voice service (OmniNet TTS proxy)
 [Service]
 Type=simple
 WorkingDirectory=%h/.local/share/chimpflow
+EnvironmentFile=-%h/.local/share/chimpflow/chimpflow.env
 ExecStart=%h/.local/lib/chimpflow/chimpflow
 Restart=on-failure
 RestartSec=3

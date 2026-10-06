@@ -41,9 +41,10 @@ Companions (expected to be running, started independently):
 | audio.cpp server | `127.0.0.1:8080` | TTS (PocketTTS, Vulkan) | see `/projects/audio-cpp-test` |
 | whisper.cpp server | `127.0.0.1:8081` | STT (`ggml-tiny.en`) | systemd user unit `chimpflow-whisper.service` |
 
-The `--model` flag of the whisper unit and the `kSttModel` constant in
-`src/main.cpp` must match — whisper-server exposes no model-listing endpoint,
-so the status route reports the model from that constant.
+The whisper model has a single source: `CHIMPFLOW_STT_MODEL` in
+`chimpflow.env` (compiled default `kSttModel`) feeds both the whisper unit's
+`--model` and the status route — whisper-server exposes no model-listing
+endpoint.
 
 ## Components
 
@@ -75,7 +76,7 @@ voice dropdown from `/v1/models`), **Status** (service health plus **one full
 card per engine** — an `audio.cpp` card for TTS and a `whisper.cpp` card for
 STT, each showing endpoint, reachability dot, and loaded model; the audio.cpp
 card also shows the model file path). The header carries a visible build
-badge (`v0.1.4`) so a stale cached render is self-diagnosing. `index.html`
+badge (`v0.1.5`) so a stale cached render is self-diagnosing. `index.html`
 is served with `Cache-Control: no-cache` because a single-file SPA otherwise
 heuristically caches. The admin key lives in `localStorage` (localhost-only
 trade-off, documented).
@@ -112,7 +113,7 @@ sign extension, odd-chunk padding), and multipart body framing.
 | `POST /admin/keys` | `admin` | create; returns `rawKey` once |
 | `DELETE /admin/keys/<id>` | `admin` | revoke |
 | `GET /admin/engine/models` | `admin` | audio.cpp models, proxied |
-| `GET /admin/engine/stt` | `admin` | whisper.cpp health probe + `kSttModel`; reports `{"reachable":false}` instead of 502 so the UI can render it |
+| `GET /admin/engine/stt` | `admin` | whisper.cpp health probe + served model (env `CHIMPFLOW_STT_MODEL`); reports `{"reachable":false}` instead of 502 so the UI can render it |
 
 Design choices:
 
@@ -143,8 +144,9 @@ exactly once; only the sha hash is stored.
 
 - sqlite db in the service CWD (`data/chimpflow.db` dev,
   `~/.local/share/chimpflow/` installed) — hashed keys only.
-- Engine addresses are compile-time constants (`kEngineBase`, `kSttBase`,
-  `kSttModel`); localhost is the deployment target.
+- Engine addresses and the STT model are env-driven (`CHIMPFLOW_ENGINE_URL`,
+  `CHIMPFLOW_STT_URL`, `CHIMPFLOW_STT_MODEL` in `chimpflow.env`; compile-time
+  constants are the defaults); localhost is the deployment target.
 - Demo configuration is env-based: `CHIMPFLOW_URL`, `CHIMPFLOW_KEY`
   (default: read `~/.local/share/chimpflow/ADMIN_KEY`), `CHIMPFLOW_VOICE`.
 - The demo key needs **both** `stt` and `tts` scopes.
@@ -185,10 +187,12 @@ re-running `install.sh` after web changes.
 ## Invariants & known pitfalls
 
 - `/skill` guide + manifest must be updated with any route change.
-- `kSttModel` must match `chimpflow-whisper.service --model`.
+- `CHIMPFLOW_STT_MODEL` in `chimpflow.env` must stay the model the whisper unit
+  actually serves — it drives both the unit's `--model` and the status page
+  (compiled default `kSttModel`).
 - WebUI changes require re-running `install.sh` to reach the served copy.
 - **Bump the header badge on every WebUI change** (`web/index.html`, currently
-  `v0.1.4`). The badge + `no-cache` exist because heuristic browser caching
+  `v0.1.5`). The badge + `no-cache` exist because heuristic browser caching
   showed a user a pre-fix page for hours while `curl` proved the server was
   correct. Verify UI complaints at three layers: served bytes (`curl`), a
   fresh-browser render, and the request log
