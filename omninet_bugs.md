@@ -1,5 +1,12 @@
 # OmniNet bug reports
 
+> **STATUS (2026-10-07): all three bugs below are FIXED upstream in v1.0.5**
+> (commit 11d0266 "Fix ChimpFlow report bugs #7-#9" + commit f70af1c
+> "Make the Socket buffer cap externally configurable (maxBufferSize)").
+> ChimpFlow now fetches OmniNet via CMake FetchContent at tag `main`
+> (commit a43ef07) and sizes both caps itself: maxRequestSize=24MB,
+> maxBufferSize=32MB. Verified live with a 19.4 MB stereo STT upload.
+
 Forwarded to the OmniNet dev team. Each entry: symptom, root cause
 (file:line as of this checkout), suggested direction. ChimpFlow
 (127.0.0.1:8090) proxies up to ~120 s of client audio to engine servers,
