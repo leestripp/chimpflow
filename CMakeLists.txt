@@ -9,48 +9,27 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# OmniNet lives as a sibling checkout; override with -DOMNINET_DIR=...
-set(OMNINET_DIR "/projects/Websites/OmniNet" CACHE PATH "Path to OmniNet source")
-set(OMNINET_BUILD_DIR "${OMNINET_DIR}/build" CACHE PATH "Path to OmniNet build (prebuilt libOmniNet.a)")
-
-find_package(Threads REQUIRED)
-find_package(OpenSSL REQUIRED)
-find_package(SQLite3 REQUIRED)
-find_package(ZLIB)
+# OmniNet is a fetched library maintained upstream (leestrip/OmniNet). Track
+# main so fixes flow down as soon as they land; never patch it locally.
+# Note: a moving tag means updates require a fresh configure (FETCHCONTENT_FULLY_DISCONNECTED=OFF).
+include(FetchContent)
+FetchContent_Declare(
+  OmniNet
+  GIT_REPOSITORY git@gitlab.com:leestripp/omninet.git
+  GIT_TAG main
+  GIT_SHALLOW TRUE
+)
+set(OMNINET_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(OMNINET_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+set(OMNINET_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(OMNINET_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(OmniNet)
 
 add_executable(chimpflow src/main.cpp)
 
-target_include_directories(chimpflow PRIVATE
-  "${OMNINET_DIR}/src"
-  "${OMNINET_DIR}/include"
-  "${OMNINET_BUILD_DIR}/_deps/nlohmann_json-src/single_include"
-)
-
-# Prefer the prebuilt static lib; fall back to building OmniNet via add_subdirectory.
-find_library(OMNINET_LIB NAMES OmniNet libOmniNet.a
-  PATHS "${OMNINET_BUILD_DIR}" NO_DEFAULT_PATH)
-
-if(OMNINET_LIB)
-  message(STATUS "Linking prebuilt OmniNet: ${OMNINET_LIB}")
-  target_link_libraries(chimpflow PRIVATE
-    "${OMNINET_LIB}"
-    OpenSSL::SSL OpenSSL::Crypto
-    SQLite::SQLite3
-    Threads::Threads
-    dl
-  )
-  if(ZLIB_FOUND)
-    target_link_libraries(chimpflow PRIVATE ZLIB::ZLIB)
-  endif()
-else()
-  message(STATUS "No prebuilt libOmniNet.a; building OmniNet from source")
-  set(OMNINET_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-  set(OMNINET_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
-  set(OMNINET_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-  set(OMNINET_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-  add_subdirectory("${OMNINET_DIR}" "${CMAKE_BINARY_DIR}/_omninet")
-  target_link_libraries(chimpflow PRIVATE OmniNet)
-endif()
+# OmniNet links OpenSSL/SQLite3/pthread/nlohmann_json PUBLIC, so its
+# interface propagates everything main.cpp needs.
+target_link_libraries(chimpflow PRIVATE OmniNet)
 
 target_compile_options(chimpflow PRIVATE -Wall -Wextra)
 

@@ -27,8 +27,10 @@ All three are `WantedBy=default.target` and survive reboot/logout via
 
 ## Prerequisites
 
-- OmniNet: sibling checkout at `/projects/Websites/OmniNet` (default), or pass
-  `-DOMNINET_DIR=/path` at cmake time. A prebuilt `libOmniNet.a` is used if present.
+- OmniNet: no manual checkout needed — CMake FetchContent clones
+  `git@gitlab.com:leestripp/omninet.git` at tag `main` at configure time.
+  Because `main` moves, refresh with `cmake --fresh -B build` to pull the
+  latest upstream fixes. Never patch the fetched copy locally.
 - audio.cpp: built `audiocpp_server` with `server.json`, TTS model
   (`models/pocket-tts-english-q8_0.gguf`), and the speaker-embedding voice dir.
 - whisper.cpp: built `whisper-server` at `~/Apps/whisper.cpp/build/bin/` and the

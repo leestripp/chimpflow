@@ -284,11 +284,14 @@ int main() {
     Server::Config serverConfig;
     serverConfig.address = cfgListenHost;  // localhost service; set 0.0.0.0 only if exposing to LAN
     serverConfig.port = cfgListenPort;
-    // Clients upload up to ~120 s of audio for STT. OmniNet's default
-    // 1 MB request cap drops those mid-upload; raise it to match the
-    // hardcoded 10 MB SAFETY_BODY_LIMIT in OmniNet's HttpConnection
-    // (effective ceiling until that lands upstream in leestrip/OmniNet).
-    serverConfig.maxRequestSize = 10 * 1024 * 1024;
+    // Clients upload up to ~120 s of audio for STT; worst case (44.1 kHz
+    // stereo 16-bit WAV) is ~21 MB. OmniNet's defaults (1 MB request cap,
+    // 16 MB per-socket buffer cap) drop those mid-upload, and the socket cap
+    // must exceed the largest request/response we move. Both are externally
+    // configurable since OmniNet v1.0.5 (maxBufferSize landed via our
+    // bug report; see ./omninet_bugs.md).
+    serverConfig.maxRequestSize = 24 * 1024 * 1024;  // 24 MB
+    serverConfig.maxBufferSize  = 32 * 1024 * 1024;  // 32 MB per-socket cap
     Server server(serverConfig);
 
     // Health (open)
