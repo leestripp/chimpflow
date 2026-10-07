@@ -49,6 +49,8 @@ echo "==> Installing systemd user unit"
 cat > "$UNIT_DIR/$APP.service" << 'UNIT'
 [Unit]
 Description=ChimpFlow voice service (OmniNet TTS proxy)
+Wants=chimpflow-tts.service chimpflow-whisper.service
+After=chimpflow-tts.service chimpflow-whisper.service
 
 [Service]
 Type=simple
@@ -63,8 +65,42 @@ PrivateTmp=true
 [Install]
 WantedBy=default.target
 UNIT
+echo "==> Installing engine systemd user units (TTS + STT)"
+cat > "$UNIT_DIR/$APP-tts.service" << 'UNIT'
+[Unit]
+Description=audio.cpp server for ChimpFlow TTS (local model, localhost only)
+
+[Service]
+Type=simple
+WorkingDirectory=/projects/audio-cpp-test
+ExecStart=/projects/audio-cpp-test/audiocpp_server --config /projects/audio-cpp-test/server.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+UNIT
+cat > "$UNIT_DIR/$APP-whisper.service" << 'UNIT'
+[Unit]
+Description=whisper.cpp server for ChimpFlow STT (local model, localhost only)
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.local/share/chimpflow/chimpflow.env
+ExecStart=%h/Apps/whisper.cpp/build/bin/whisper-server --host 127.0.0.1 --port 8081 --model %h/Apps/whisper.cpp/models/${CHIMPFLOW_STT_MODEL}.bin
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+UNIT
+
 systemctl --user daemon-reload
-systemctl --user enable --now "$APP"
+systemctl --user enable --now "$APP-tts" "$APP-whisper" "$APP"
 
 echo "==> Enabling boot-time start without login (linger)"
 loginctl enable-linger "$USER" 2>/dev/null \
@@ -88,12 +124,20 @@ else
 fi
 
 echo
+STT_URL="${CHIMPFLOW_STT_URL:-http://127.0.0.1:8081}"
 if curl -sf -m 2 "$ENGINE_URL/v1/models" > /dev/null; then
-  echo "==> Engine reachable at $ENGINE_URL — TTS ready."
+  echo "==> TTS engine reachable at $ENGINE_URL"
 else
-  echo "==> WARN: audio.cpp engine not reachable at $ENGINE_URL."
-  echo "    TTS requests will fail until the engine server is running."
+  echo "==> WARN: audio.cpp TTS engine not reachable at $ENGINE_URL."
+  echo "    TTS requests will fail until chimpflow-tts.service is running."
+fi
+if curl -sf -m 2 "$STT_URL" > /dev/null 2>&1 || systemctl --user is-active --quiet "$APP-whisper"; then
+  echo "==> STT engine up (chimpflow-whisper)"
+else
+  echo "==> WARN: whisper STT engine not reachable at $STT_URL."
+  echo "    STT requests will fail until chimpflow-whisper.service is running."
 fi
 
 echo
-echo "==> Done. WebUI: http://127.0.0.1:$PORT  ·  logs: journalctl --user -u $APP -f"
+echo "==> Done. WebUI: http://127.0.0.1:$PORT"
+echo "    logs: journalctl --user -u $APP -u $APP-tts -u $APP-whisper -f"
