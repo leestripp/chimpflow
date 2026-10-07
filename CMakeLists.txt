@@ -9,9 +9,12 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# OmniNet is a fetched library maintained upstream (leestrip/OmniNet). Track
-# main so fixes flow down as soon as they land; never patch it locally.
-# Note: a moving tag means updates require a fresh configure (FETCHCONTENT_FULLY_DISCONNECTED=OFF).
+# OmniNet is a fetched library maintained upstream (leestrip/OmniNet). We
+# ALWAYS build the latest upstream code: GIT_TAG main, and a forced
+# fast-forward to the origin/main tip at configure time (FetchContent alone
+# only re-syncs a moving tag when its populate step happens to re-run, so
+# without this a stale checkout can silently persist across rebuilds).
+# Never pin a SHA here, never patch the fetched copy locally.
 include(FetchContent)
 FetchContent_Declare(
   OmniNet
@@ -24,6 +27,25 @@ set(OMNINET_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(OMNINET_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
 set(OMNINET_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(OmniNet)
+
+# Guarantee "latest upstream": fast-forward the fetched checkout to the
+# origin/main tip on every configure. Offline -> warn and build what we have.
+FetchContent_GetProperties(OmniNet)
+if(omninet_POPULATED AND EXISTS "${omninet_SOURCE_DIR}/.git")
+  execute_process(
+    COMMAND git fetch --depth 1 origin main
+    WORKING_DIRECTORY "${omninet_SOURCE_DIR}"
+    OUTPUT_QUIET ERROR_QUIET
+    RESULT_VARIABLE _omninet_fetch_rc)
+  if(_omninet_fetch_rc EQUAL 0)
+    execute_process(
+      COMMAND git reset --hard FETCH_HEAD
+      WORKING_DIRECTORY "${omninet_SOURCE_DIR}"
+      OUTPUT_QUIET ERROR_QUIET)
+  else()
+    message(WARNING "OmniNet: git fetch failed (offline?); building existing checkout")
+  endif()
+endif()
 
 add_executable(chimpflow src/main.cpp)
 
