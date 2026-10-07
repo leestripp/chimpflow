@@ -284,6 +284,11 @@ int main() {
     Server::Config serverConfig;
     serverConfig.address = cfgListenHost;  // localhost service; set 0.0.0.0 only if exposing to LAN
     serverConfig.port = cfgListenPort;
+    // Clients upload up to ~120 s of audio for STT. OmniNet's default
+    // 1 MB request cap drops those mid-upload; raise it to match the
+    // hardcoded 10 MB SAFETY_BODY_LIMIT in OmniNet's HttpConnection
+    // (effective ceiling until that lands upstream in leestrip/OmniNet).
+    serverConfig.maxRequestSize = 10 * 1024 * 1024;
     Server server(serverConfig);
 
     // Health (open)
