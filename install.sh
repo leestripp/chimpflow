@@ -34,7 +34,7 @@ CHIMPFLOW_STT_URL=http://127.0.0.1:8081
 # Voice catalog for GET /v1/voices: dir of engine voice samples (*.wav).
 # Ids served = file basenames, matching what the engine resolves `voice` to.
 # Leave unset to disable voice listing (the endpoint then answers 503).
-CHIMPFLOW_VOICES_DIR=/projects/audio-cpp-test/voice_samples
+CHIMPFLOW_VOICES_DIR=/projects/AI/ChimpFlow/engine/voice_samples
 # Whisper model basename (the whisper unit appends .bin). Single source for
 # both the status page and the whisper service's --model.
 CHIMPFLOW_STT_MODEL=ggml-tiny.en
@@ -72,8 +72,8 @@ Description=audio.cpp server for ChimpFlow TTS (local model, localhost only)
 
 [Service]
 Type=simple
-WorkingDirectory=/projects/audio-cpp-test
-ExecStart=/projects/audio-cpp-test/audiocpp_server --config /projects/audio-cpp-test/server.json
+WorkingDirectory=/projects/AI/ChimpFlow/engine
+ExecStart=/projects/AI/ChimpFlow/engine/audiocpp_server --config /projects/AI/ChimpFlow/engine/server.json
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true

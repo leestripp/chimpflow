@@ -88,7 +88,7 @@ a bootstrap admin key
 (**shown once** — save it). Then open http://127.0.0.1:8090/ and sign in.
 
 The audio.cpp engine must be running on `127.0.0.1:8080` (see
-`/projects/audio-cpp-test` or your engine install).
+`/projects/AI/ChimpFlow/engine` or your engine install).
 
 ## API
 

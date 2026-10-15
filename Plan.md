@@ -201,7 +201,7 @@ zero build, Vulkan backend detected the GPU with no ROCm setup.
     (anna, peter_yearsley, stuart_bell failed, fixed by re-download). Download
     serially. Also `--request-sequence` ignores voice_id/output_name keys -
     use per-voice CLI runs for distinct outputs.
-- Assets at `/projects/audio-cpp-test/` (binaries, `models/`, `server.json`,
+- Assets at `/projects/AI/ChimpFlow/engine/` (binaries, `models/`, `server.json`,
   sample `out_pocket_*.wav`, `api_test.wav`). Server left running on :8080.
 
 Conclusion: audio.cpp is a working Tier-1/Tier-2 candidate. The WebUI's

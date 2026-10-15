@@ -38,7 +38,7 @@ Companions (expected to be running, started independently):
 
 | Companion | Address | Role | Run by |
 |---|---|---|---|
-| audio.cpp server | `127.0.0.1:8080` | TTS (PocketTTS, Vulkan) | see `/projects/audio-cpp-test` |
+| audio.cpp server | `127.0.0.1:8080` | TTS (PocketTTS, Vulkan) | see `/projects/AI/ChimpFlow/engine` |
 | whisper.cpp server | `127.0.0.1:8081` | STT (`ggml-tiny.en`) | systemd user unit `chimpflow-whisper.service` |
 
 The whisper model has a single source: `CHIMPFLOW_STT_MODEL` in

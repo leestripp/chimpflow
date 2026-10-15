@@ -20,3 +20,17 @@ nohup.out
 # misc
 .DS_Store
 *.log
+
+# models — never commit; large binaries live outside the repo
+# (ChimpFlow's TTS engine + models are in /projects/audio-cpp-test)
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+*.ckpt
+models/
+
+# engine runtime — local TTS binary, ggml libs, models (never commit)
+engine/

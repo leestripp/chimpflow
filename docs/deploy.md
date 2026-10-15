@@ -23,7 +23,7 @@ All three are `WantedBy=default.target` and survive reboot/logout via
   - `data/chimpflow.db` — API key store (sha-hashed keys, usage counts)
   - `ADMIN_KEY` — bootstrap admin key, mode 600 (created by `install.sh` on a fresh db)
 - `~/.config/systemd/user/` — `chimpflow.service`, `chimpflow-tts.service`, `chimpflow-whisper.service`
-- `/projects/audio-cpp-test/` — audio.cpp engine checkout (`server.json`, `models/` incl. `models/embeddings`)
+- `/projects/AI/ChimpFlow/engine/` — audio.cpp engine checkout (`server.json`, `models/` incl. `models/embeddings`)
 
 ## Prerequisites
 
@@ -58,13 +58,13 @@ the only fix is deleting `data/chimpflow.db` (destructive). The WebUI at
 
 The engine units are installed by `install.sh`; for reference:
 
-- `chimpflow-tts.service` — `WorkingDirectory=/projects/audio-cpp-test`,
-  `ExecStart=/projects/audio-cpp-test/audiocpp_server --config .../server.json`
+- `chimpflow-tts.service` — `WorkingDirectory=/projects/AI/ChimpFlow/engine`,
+  `ExecStart=/projects/AI/ChimpFlow/engine/audiocpp_server --config .../server.json`
 - `chimpflow-whisper.service` — `ExecStart=~/Apps/whisper.cpp/build/bin/whisper-server
   --host 127.0.0.1 --port 8081 --model .../${CHIMPFLOW_STT_MODEL}.bin`
 
 Both have `Restart=on-failure` and `WantedBy=default.target`. The engine
-checkouts themselves (`/projects/audio-cpp-test`, `~/Apps/whisper.cpp`) must
+checkouts themselves (`/projects/AI/ChimpFlow/engine`, `~/Apps/whisper.cpp`) must
 of course exist — see Prerequisites.
 
 ## Updating
