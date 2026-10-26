@@ -140,6 +140,11 @@ never in a committed file. If lost, revoke and recreate.
       http://127.0.0.1:8090/admin/keys/<id>
     {"ok":true}
 
+### DELETE /admin/keys/<id>/permanent — scope: admin
+
+Permanently removes a REVOKED key record. Returns 409 if the key is still
+active (revoke it first), 404 if it does not exist, or `{"ok":true}` on success.
+
 ### POST /v1/audio/transcriptions — scope: stt
 
 OpenAI-compatible transcription. Multipart upload, forwarded to whisper.cpp:
@@ -235,6 +240,7 @@ constexpr std::string_view kSkillManifest = R"CHIMP({
     {"method": "GET",  "path": "/admin/keys",           "auth": "bearer", "scope": "admin"},
     {"method": "POST", "path": "/admin/keys",           "auth": "bearer", "scope": "admin", "body": {"name": "key name", "scopes": ["tts"]}, "notes": "rawKey returned once"},
     {"method": "DELETE", "path": "/admin/keys/{id}",    "auth": "bearer", "scope": "admin"},
+    {"method": "DELETE", "path": "/admin/keys/{id}/permanent", "auth": "bearer", "scope": "admin", "notes": "permanently delete a revoked key; active keys return 409"},
     {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "engine model list (proxied; no voices)"},
     {"method": "GET",  "path": "/admin/engine/stt",     "auth": "bearer", "scope": "admin", "notes": "whisper.cpp reachability + served model"}
   ],
@@ -483,6 +489,28 @@ int main() {
             sendJson(resp, StatusCode::OK, R"({"ok":true})");
         else
             sendJson(resp, StatusCode::NOT_FOUND, R"({"error":"key not found"})");
+    });
+
+    // Permanent delete: DELETE /admin/keys/<id>/permanent (revoked only).
+    server.delete_(R"(/admin/keys/[a-zA-Z0-9_]+/permanent)", [&keys, &requireAdmin](const Request& req, Response& resp) {
+        Token::ApiKeyStore::ValidationResult v;
+        if (!requireAdmin(req, v))
+            return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
+        const std::string path = std::string(req.path());
+        constexpr std::string_view prefix = "/admin/keys/";
+        constexpr std::string_view suffix = "/permanent";
+        const auto id = path.substr(prefix.size(), path.size() - prefix.size() - suffix.size());
+        const auto existing = keys.getById(id);
+        if (!existing)
+            return sendJson(resp, StatusCode::NOT_FOUND, R"({"error":"key not found"})");
+        if (!existing->revoked)
+            return sendJson(resp, StatusCode::CONFLICT,
+                            R"({"error":"revoke the key before permanent deletion"})");
+        if (keys.remove(id))
+            sendJson(resp, StatusCode::OK, R"({"ok":true})");
+        else
+            sendJson(resp, StatusCode::INTERNAL_SERVER_ERROR,
+                     R"({"error":"permanent delete failed"})");
     });
 
     // Engine models (proxied from audio.cpp, admin only)

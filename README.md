@@ -24,7 +24,9 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
 - **WebUI** at `/` — key management, TTS test bench (26 voices), Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.1.5`) so a stale cached page is self-evident
+  badge (currently `v0.1.9`) so a stale cached page is self-evident
+- **One-time secret copying** — the generate-key area has **Copy new secret
+  key** for the newly created `rawKey`; existing rows have no Copy ID action
 - **Bootstrap admin key** printed once on first run
 
 ## Tests
@@ -103,6 +105,7 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 | `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
 | `POST /admin/keys` | `admin` | create key `{"name":"...","scopes":["tts"]}` → returns `rawKey` once |
 | `DELETE /admin/keys/<id>` | `admin` | revoke a key |
+| `DELETE /admin/keys/<id>/permanent` | `admin` | permanently delete a revoked key (409 if active, 404 if missing) |
 | `GET /admin/engine/models` | `admin` | engine's model list (proxied) |
 | `GET /admin/engine/stt` | `admin` | whisper.cpp reachability + served model (`{"reachable":false}`, never 502) |
 | `GET /` | none | WebUI |
@@ -121,6 +124,10 @@ curl -X POST http://127.0.0.1:8090/v1/audio/speech \
 
 - Binds **127.0.0.1** by default — change `serverConfig.address` to expose on LAN.
 - Keys are stored as hashes; the raw key is returned exactly once at creation.
+  Row IDs are only identifiers and cannot authenticate. Existing raw secrets
+  cannot be recovered; create a replacement key if the original was lost.
+  **Revoke** disables a key but keeps its record; **Delete** permanently removes
+  a revoked record after confirmation. Active keys cannot be permanently deleted.
 - The WebUI keeps the admin key in `localStorage` (localhost-only trade-off).
 
 ## Layout

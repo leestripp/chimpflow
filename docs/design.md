@@ -74,12 +74,16 @@ auth/proxy layer; splitting it would add ceremony, not clarity):
 Three tabs: **Keys** (create/revoke, scopes checkboxes), **TTS** (test bench,
 voice dropdown from `/v1/models`), **Status** (service health plus **one full
 card per engine** — an `audio.cpp` card for TTS and a `whisper.cpp` card for
-STT, each showing endpoint, reachability dot, and loaded model; the audio.cpp
+STT, each showing endpoint, reachability dot, and loaded model. Revoked key
+rows also offer a confirmed **Delete** action; active keys must be revoked
+before permanent deletion. The audio.cpp
 card also shows the model file path). The header carries a visible build
-badge (`v0.1.5`) so a stale cached render is self-diagnosing. `index.html`
+badge (`v0.1.9`) so a stale cached render is self-diagnosing. `index.html`
 is served with `Cache-Control: no-cache` because a single-file SPA otherwise
 heuristically caches. The admin key lives in `localStorage` (localhost-only
-trade-off, documented).
+trade-off, documented). The generate-key area offers **Copy new secret key**
+for the one-time `rawKey`; clipboard helpers are scoped to that action only.
+Existing raw secrets are never reconstructed from IDs, and there is no Copy ID.
 
 ### ChimpEcho demo (`demo/`)
 
@@ -112,6 +116,7 @@ sign extension, odd-chunk padding), and multipart body framing.
 | `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
 | `POST /admin/keys` | `admin` | create; returns `rawKey` once |
 | `DELETE /admin/keys/<id>` | `admin` | revoke |
+| `DELETE /admin/keys/<id>/permanent` | `admin` | permanently delete a revoked row (409 active, 404 missing) |
 | `GET /admin/engine/models` | `admin` | audio.cpp models, proxied |
 | `GET /admin/engine/stt` | `admin` | whisper.cpp health probe + served model (env `CHIMPFLOW_STT_MODEL`); reports `{"reachable":false}` instead of 502 so the UI can render it |
 
@@ -192,7 +197,7 @@ re-running `install.sh` after web changes.
   (compiled default `kSttModel`).
 - WebUI changes require re-running `install.sh` to reach the served copy.
 - **Bump the header badge on every WebUI change** (`web/index.html`, currently
-  `v0.1.5`). The badge + `no-cache` exist because heuristic browser caching
+  `v0.1.9`). The badge + `no-cache` exist because heuristic browser caching
   showed a user a pre-fix page for hours while `curl` proved the server was
   correct. Verify UI complaints at three layers: served bytes (`curl`), a
   fresh-browser render, and the request log

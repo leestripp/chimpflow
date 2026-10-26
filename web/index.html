@@ -71,6 +71,9 @@
   .hidden { display:none !important; }
   .muted { color:var(--dim); font-size:12px; }
   .keycell { font-family:ui-monospace,monospace; font-size:12px; }
+  .key-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  button.small { padding:4px 10px; font-size:12px; }
+  .clipboard-helper { position:fixed; left:-10000px; top:0; opacity:0; }
   #newKeyOut { font-family:ui-monospace,monospace; font-size:13px;
                background:var(--bg); border:1px solid var(--ok); border-radius:6px;
                padding:10px; margin-top:10px; word-break:break-all; display:none; }
@@ -81,7 +84,7 @@
   <span class="dot" id="statusDot"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.5</span>
+  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.9</span>
   <span style="flex:1"></span>
   <button id="logoutBtn" class="hidden">Sign out</button>
 </header>
@@ -115,13 +118,17 @@
         <label style="margin:0"><input type="checkbox" id="scopeAdmin"> admin</label>
         <button class="primary" id="createKeyBtn">Create</button>
       </div>
-      <div id="newKeyOut"></div>
+      <div id="newKeyOut" aria-label="New secret key, shown once"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="copyNewKeyBtn" class="small hidden" type="button">Copy new secret key</button>
+      </div>
       <h2 style="margin-top:22px">Keys</h2>
+      <p class="muted">Full secret keys are shown once at creation.</p>
       <table>
         <thead><tr><th>Name</th><th>ID</th><th>Scopes</th><th>Uses</th><th>Status</th><th></th></tr></thead>
         <tbody id="keysBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
       </table>
-      <div class="msg" id="keysMsg"></div>
+      <div class="msg" id="keysMsg" role="status" aria-live="polite"></div>
     </section>
 
     <section id="tab-tts" class="card hidden">
@@ -279,6 +286,54 @@ async function loadStatus() {
   }
 }
 
+// ---- Clipboard (IDs vs one-time secrets) ----
+let newRawKey = "";
+function legacyCopy(text) {
+  if (typeof document.execCommand !== "function") return false;
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.className = "clipboard-helper";
+  area.setAttribute("aria-hidden", "true");
+  area.tabIndex = -1;
+  document.body.appendChild(area);
+  try {
+    area.select();
+    return document.execCommand("copy");
+  } finally {
+    area.remove();
+  }
+}
+async function copyText(text, label) {
+  if (!text) {
+    showMsg($("keysMsg"), "Nothing to copy", false);
+    return false;
+  }
+  let copied = false;
+  let clipboardError = "";
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch (e) {
+      clipboardError = e.message;
+    }
+  }
+  try {
+    if (!copied) copied = legacyCopy(text);
+    if (!copied) throw new Error(clipboardError || "Browser denied clipboard access");
+    showMsg($("keysMsg"), label + " copied to clipboard", true);
+    return true;
+  } catch (e) {
+    showMsg($("keysMsg"), "Automatic copy failed: " + e.message +
+            ". Select the text and copy it manually.", false);
+    return false;
+  }
+}
+$("copyNewKeyBtn").addEventListener("click", async () => {
+  await copyText(newRawKey, "New secret key");
+});
+
 // ---- Keys ----
 async function loadKeys() {
   try {
@@ -289,10 +344,15 @@ async function loadKeys() {
                     : k.expired  ? '<span style="color:var(--warn)">expired</span>'
                     : '<span style="color:var(--ok)">active</span>';
       const scopes = k.scopes.map(s => `<span class="pill ${esc(s)}">${esc(s)}</span>`).join("");
+      const revoke = k.revoked
+        ? `<button class="small danger" data-delete="${esc(k.id)}" aria-label="Permanently delete revoked key ${esc(k.id)}">Delete</button>`
+        : `<button class="small danger" data-revoke="${esc(k.id)}">Revoke</button>`;
       return `<tr><td>${esc(k.name)}</td><td class="keycell">${esc(k.id)}</td>` +
              `<td>${scopes}</td><td>${k.useCount ?? 0}</td><td>${status}</td>` +
-             `<td>${k.revoked ? "" : `<button class="danger" data-revoke="${esc(k.id)}">Revoke</button>`}</td></tr>`;
+             `<td><div class="key-actions">${revoke}</div></td></tr>`;
     }).join("") || '<tr><td colspan="6" class="muted">No keys yet</td></tr>';
+    document.querySelectorAll("[data-delete]").forEach(b =>
+      b.addEventListener("click", () => permanentlyDeleteKey(b.dataset.delete)));
     document.querySelectorAll("[data-revoke]").forEach(b =>
       b.addEventListener("click", () => revokeKey(b.dataset.revoke)));
   } catch (e) { showMsg($("keysMsg"), e.message, false); }
@@ -312,15 +372,26 @@ $("createKeyBtn").addEventListener("click", async () => {
     const out = $("newKeyOut");
     out.style.display = "block";
     out.textContent = j.rawKey;
-    showMsg($("keysMsg"), "Key created — copy it now, it will not be shown again.", true);
-    $("newKeyName").value = ""; loadKeys();
+    newRawKey = j.rawKey;
+    $("copyNewKeyBtn").classList.remove("hidden");
+    showMsg($("keysMsg"), "Key created — copy the full secret now; it will not be shown again.", true);
+    $("newKeyName").value = ""; await loadKeys();
   } catch (e) { showMsg($("keysMsg"), e.message, false); }
 });
 async function revokeKey(id) {
   if (!confirm("Revoke key " + id + "?")) return;
   try {
     await api("/admin/keys/" + encodeURIComponent(id), { method: "DELETE" });
-    showMsg($("keysMsg"), "Revoked " + id, true); loadKeys();
+    showMsg($("keysMsg"), "Revoked " + id, true); await loadKeys();
+  } catch (e) { showMsg($("keysMsg"), e.message, false); }
+}
+
+async function permanentlyDeleteKey(id) {
+  if (!confirm("Permanently delete revoked key " + id + "? This cannot be undone.")) return;
+  try {
+    await api("/admin/keys/" + encodeURIComponent(id) + "/permanent", { method: "DELETE" });
+    showMsg($("keysMsg"), "Permanently deleted " + id, true);
+    await loadKeys();
   } catch (e) { showMsg($("keysMsg"), e.message, false); }
 }
 

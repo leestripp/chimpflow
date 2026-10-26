@@ -49,8 +49,20 @@ raw=$(curl -s -X POST "$BASE/admin/keys" "${AUTH[@]}" -H 'Content-Type: applicat
 id=$(echo "$raw"  | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 tkey=$(echo "$raw" | python3 -c 'import json,sys; print(json.load(sys.stdin)["rawKey"])')
 expect "tts-only key on STT -> 403" 403 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/v1/audio/transcriptions" -H "Authorization: Bearer $tkey" -F file=@"$wav" -F model=whisper)"
+expect "active key permanent delete -> 409" 409 "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "${AUTH[@]}" "$BASE/admin/keys/$id/permanent")"
 if curl -s -X DELETE "${AUTH[@]}" "$BASE/admin/keys/$id" | grep -q '"ok":true'; then ok "scope-test key revoked"
 else bad "scope-test key NOT revoked"; fi
+expect "revoked key permanent delete -> 200" 200 "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "${AUTH[@]}" "$BASE/admin/keys/$id/permanent")"
+if curl -fsS "${AUTH[@]}" "$BASE/admin/keys" | python3 -c 'import json,sys; kid=sys.argv[1]; assert all(k["id"] != kid for k in json.load(sys.stdin))' "$id"
+then ok "permanently deleted key is absent from list"; else bad "permanently deleted key still listed"; fi
+
+page=$(curl -fsS "$BASE/")
+for needle in 'data-delete' 'navigator.clipboard.writeText' 'document.execCommand("copy")' \
+              'Copy new secret key' 'Full secret keys are shown once' '/permanent' 'v0.1.9'; do
+  if printf '%s' "$page" | grep -qF "$needle"; then ok "WebUI copy controls: $needle"
+  else bad "WebUI copy controls missing: $needle"; fi
+done
+if printf '%s' "$page" | grep -qE 'data-copy-id|Copy ID'; then bad "Copy ID is absent"; else ok "Copy ID is absent"; fi
 
 rm -f "$wav"
 echo "---"
