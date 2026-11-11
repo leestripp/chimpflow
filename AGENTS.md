@@ -35,7 +35,9 @@ next to itself (web root resolves via /proc/self/exe).
 
 ## Layout
 
-- `src/main.cpp` — all service code: auth, routes, engine proxy, bootstrap admin key.
+- `src/main.cpp` — service code: auth, routes, engine proxy, bootstrap master key.
+- `src/audio_format.{h,cpp}` — bounded PCM16 WAV joiner + local WAV→MP3 ffmpeg adapter.
+- `src/text_chunk.{h,cpp}` — bounded long-form paragraph/sentence/word splitting without cutting UTF-8.
   Agent-facing API guide is served at `/skill/` (markdown) and `/skill/manifest.json`
   (structured twin) — update `kSkillMd`/`kSkillManifest` in the anonymous namespace
   whenever routes change, so the guide never drifts from the code.
@@ -68,7 +70,13 @@ next to itself (web root resolves via /proc/self/exe).
   signaled done and the UI dead-locked (log showed `playback started` with no
   `playback done`). Repro pattern for such bugs: extract the struct into a
   tiny CLI harness (`/tmp/pw_repro*.cpp`), run under `timeout`, A/B the fix.
-- WebUI keeps the admin key in localStorage; keys are sha-hashed in sqlite.
+- WebUI keeps the master key in localStorage; keys are sha-hashed in sqlite.
+- audio.cpp currently ignores `response_format: "mp3"` and returns WAV. ChimpFlow
+  therefore asks for WAV and converts successful MP3 requests with ffmpeg. Use
+  an explicit `-f mp3` output muxer: secure temporary files have no extension.
+  The bootstrap/startup `std::cout` messages must be flushed (`std::endl`);
+  otherwise systemd's non-TTY stdout buffering hides the one-time master key
+  from the journal and `install.sh` cannot save it.
 - Frontend-format workflow gotcha (ComfyUI side): prompt text lives in BOTH
   `widgets_values[0]` and `widgets_values_named.value` — patch both.
 - Deployed-WebUI verification has three layers — check in order before believing
@@ -95,8 +103,14 @@ next to itself (web root resolves via /proc/self/exe).
 ## Conventions
 
 - C++23, warning-clean under the project's flags; RAII, no raw new/delete.
-- No new dependencies without asking; OmniNet path via `-DOMNINET_DIR=` (default
-  `/projects/Websites/OmniNet`, prebuilt `libOmniNet.a` if present, else builds from source).
-- Never commit: `build/`, `data/`, `*.wav`, `.daedalus/`, logs.
-- Bootstrap admin key prints ONCE on fresh db (in chimpflow.out) — there is no recovery;
-  without keys the only fix is deleting data/chimpflow.db (destructive).
+- No new dependencies without asking. OmniNet is a fetched library via
+  `FetchContent` at `main`; never modify its checkout. For disconnected builds,
+  configure with `-DFETCHCONTENT_SOURCE_DIR_OMNINET=/path/to/clean/source`.
+- Engine checkout paths default to `/projects/AI/ChimpFlow/engine` and
+  `~/Apps/whisper.cpp`; override with `CHIMPFLOW_ENGINE_HOME` and
+  `CHIMPFLOW_WHISPER_HOME` before running `install.sh` on another machine.
+  When copying `engine/server.json`, rewrite its absolute model path too.
+- Never commit: `build/`, `data/`, `*.wav`, `*.mp3`, `.daedalus/`, logs.
+- Bootstrap master key prints ONCE on a fresh db to the journal; `install.sh`
+  saves it as `ADMIN_KEY` mode 600. It cannot be revoked/deleted from the API.
+  If it is lost, the only reset is replacing data/chimpflow.db (destructive).

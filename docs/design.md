@@ -30,9 +30,13 @@ already running).
  └─────────────────────────────┘
 ```
 
-ChimpFlow is deliberately **a gateway, not a processor**: audio bodies are
-forwarded byte-for-byte to the engine that owns them. It never parses speech
-payloads, which keeps it small, fast, and out of the codec business.
+ChimpFlow is deliberately **a gateway with small format adapters**. STT bodies
+pass through untouched. audio.cpp ignores `response_format: "mp3"` and always
+emits WAV, so `src/audio_format.cpp` converts successful WAV responses to real
+MP3 with local ffmpeg. `src/text_chunk.cpp` splits long-form input at paragraph,
+sentence, word, and UTF-8-safe boundaries; the route synthesizes sequentially
+and `WavJoiner` combines the PCM into one response. Engine error status/body are
+preserved; no inference runs in ChimpFlow.
 
 Companions (expected to be running, started independently):
 
@@ -48,10 +52,11 @@ endpoint.
 
 ## Components
 
-### ChimpFlow service (`src/main.cpp`, ~450 lines, single file)
+### ChimpFlow service (`src/main.cpp` + `src/audio_format.cpp` + `src/text_chunk.cpp`)
 
-Everything lives in one translation unit by design (the service is a thin
-auth/proxy layer; splitting it would add ceremony, not clarity):
+Routes, authentication, key administration, and engine proxying live in
+`main.cpp`; the bounded ffmpeg process/temp-file adapter lives in
+`audio_format.cpp`:
 
 - **Routes** — OmniNet `Server` with per-route lambdas; two helper closures
   (`bearerToken`, `requireAdmin`) keep auth checks uniform.
@@ -60,8 +65,12 @@ auth/proxy layer; splitting it would add ceremony, not clarity):
   at creation. Scopes: `admin`, `tts`, `stt`. Per-key use counts, revocation,
   expiry support.
 - **Engine proxy** — each `/v1/*` route validates the key + scope, then
-  forwards method/body/content-type to the engine and streams the engine's
-  status/headers/body straight back. Errors: 502 when an engine is down.
+  forwards to the engine. TTS accepts `mp3` (recommended) or `wav`; valid text
+  is split into at most 512 chunks of about 1200 bytes, with a 131072-byte input
+  cap. Each engine response must be PCM16 WAV with a consistent format; joined
+  WAV is capped at 256 MiB and MP3 at 64 MiB. MP3 requests encode the joined WAV
+  locally. Errors: 400 for invalid input/format, 413 for excessive input, and
+  502 when an engine, WAV assembly, or encoder fails.
 - **`/skill/`** — markdown guide + `manifest.json` twin generated from the
   same constants (`kSkillMd`/`kSkillManifest`). **Invariant:** whenever a
   route changes, update these too — the runtime guide must never drift.
@@ -71,19 +80,23 @@ auth/proxy layer; splitting it would add ceremony, not clarity):
 
 ### WebUI
 
-Three tabs: **Keys** (create/revoke, scopes checkboxes), **TTS** (test bench,
-voice dropdown from `/v1/models`), **Status** (service health plus **one full
-card per engine** — an `audio.cpp` card for TTS and a `whisper.cpp` card for
-STT, each showing endpoint, reachability dot, and loaded model. Revoked key
-rows also offer a confirmed **Delete** action; active keys must be revoked
-before permanent deletion. The audio.cpp
-card also shows the model file path). The header carries a visible build
-badge (`v0.1.9`) so a stale cached render is self-diagnosing. `index.html`
-is served with `Cache-Control: no-cache` because a single-file SPA otherwise
-heuristically caches. The admin key lives in `localStorage` (localhost-only
-trade-off, documented). The generate-key area offers **Copy new secret key**
-for the one-time `rawKey`; clipboard helpers are scoped to that action only.
-Existing raw secrets are never reconstructed from IDs, and there is no Copy ID.
+Three tabs: **Keys**, **TTS**, and **Status**. The Keys tab requires the
+bootstrap master (`admin` scope), creates standard `tts`+`stt` agent keys,
+shows each secret once, and generates copyable agent instructions that prefer
+MP3. Agent rows expose **Revoke** when active and **Restore** plus confirmed
+**Delete** when revoked. The bootstrap master is marked and protected from
+revoke/delete; `admin` cannot be granted to generated agent keys.
+
+The TTS tab loads voices from `/v1/voices`, defaults to **MP3 (recommended)**,
+and also offers WAV, with playback and download. A 360px chapter editor and
+long-form notice explain automatic splitting/joining; autoplay remains enabled
+and starts only after the complete file is ready. Status has one full card per
+engine (`audio.cpp` and `whisper.cpp`) with endpoint, reachability, and model.
+The header badge is `v0.3.0`; `index.html` is served with
+`Cache-Control: no-cache`. The master key lives in `localStorage`
+(localhost-only trade-off). Clipboard actions cover the one-time secret and
+agent instructions; existing secrets are never reconstructed and there is no
+Copy ID.
 
 ### ChimpEcho demo (`demo/`)
 
@@ -111,12 +124,13 @@ sign extension, odd-chunk padding), and multipart body framing.
 | `GET /` | none | WebUI |
 | `GET /skill/`, `/skill/manifest.json` | none | agent guide (markdown + JSON twin) |
 | `GET /v1/models` | any valid key | audio.cpp model/voice list, proxied |
-| `POST /v1/audio/speech` | `tts` scope | body proxied to audio.cpp `/v1/audio/speech` |
+| `POST /v1/audio/speech` | `tts` scope | `mp3` (recommended) or `wav`; MP3 converted from engine WAV by local ffmpeg |
 | `POST /v1/audio/transcriptions` | `stt` scope | multipart proxied to whisper.cpp `/inference` |
 | `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
-| `POST /admin/keys` | `admin` | create; returns `rawKey` once |
-| `DELETE /admin/keys/<id>` | `admin` | revoke |
-| `DELETE /admin/keys/<id>/permanent` | `admin` | permanently delete a revoked row (409 active, 404 missing) |
+| `POST /admin/keys` | `admin` | create agent key (`tts`/`stt` only, default both); returns `rawKey` once |
+| `DELETE /admin/keys/<id>` | `admin` | revoke; master protected |
+| `POST /admin/keys/<id>/restore` | `admin` | restore a revoked key |
+| `DELETE /admin/keys/<id>/permanent` | `admin` | permanently delete a revoked row (409 active/master, 404 missing) |
 | `GET /admin/engine/models` | `admin` | audio.cpp models, proxied |
 | `GET /admin/engine/stt` | `admin` | whisper.cpp health probe + served model (env `CHIMPFLOW_STT_MODEL`); reports `{"reachable":false}` instead of 502 so the UI can render it |
 
@@ -128,13 +142,14 @@ Design choices:
   names to form valid requests; it lists nothing sensitive.
 - **`/admin/engine/stt` never 502s**: an admin status probe that errors when
   the subject is down is useless for showing status.
-- Multipart STT bodies pass through untouched (OmniNet's ~10 MB body limit
+- Multipart STT bodies pass through untouched (the gateway's 24 MB body limit
   applies), so any format whisper.cpp accepts (wav/mp3/ogg…) works.
 
 ## Request flows
 
-**TTS** — client → `POST /v1/audio/speech` → key+`tts` scope → forward body
-to audio.cpp → stream WAV back. 502 if audio.cpp is down.
+**TTS** — client → `POST /v1/audio/speech` → key+`tts` scope → validate
+`response_format` → audio.cpp WAV → return WAV unchanged or encode MP3 through
+ffmpeg. 502 if audio.cpp or the encoder fails.
 
 **STT** — client → `POST /v1/audio/transcriptions` (multipart `file`) →
 key+`stt` scope → forward to whisper.cpp `/inference` → JSON `{"text"}` back.
@@ -143,14 +158,17 @@ key+`stt` scope → forward to whisper.cpp `/inference` → JSON `{"text"}` back
 **Key lifecycle** — bootstrap admin key is printed once on a fresh db and
 saved to `ADMIN_KEY` (mode 600); there is no recovery — losing every admin
 key means deleting the db (destructive). Created keys return their raw value
-exactly once; only the sha hash is stored.
+exactly once; only the sha hash is stored. Revoke is reversible through
+Restore; permanent deletion requires revoked state. The bootstrap master
+cannot be revoked or deleted.
 
 ## Data & configuration
 
 - sqlite db in the service CWD (`data/chimpflow.db` dev,
   `~/.local/share/chimpflow/` installed) — hashed keys only.
 - Engine addresses and the STT model are env-driven (`CHIMPFLOW_ENGINE_URL`,
-  `CHIMPFLOW_STT_URL`, `CHIMPFLOW_STT_MODEL` in `chimpflow.env`; compile-time
+  `CHIMPFLOW_STT_URL`, `CHIMPFLOW_STT_MODEL`, `CHIMPFLOW_FFMPEG` in
+  `chimpflow.env`; compile-time
   constants are the defaults); localhost is the deployment target.
 - Demo configuration is env-based: `CHIMPFLOW_URL`, `CHIMPFLOW_KEY`
   (default: read `~/.local/share/chimpflow/ADMIN_KEY`), `CHIMPFLOW_VOICE`.
@@ -170,11 +188,12 @@ re-running `install.sh` after web changes.
 - **Unit** (`ctest -L unit`, always runs): the zero-dependency harness in
   `tests/test_util.h` covers `demo/src/wav.h` — WAV round-trip, 16/24/32-bit
   parsing, sign extension, odd-chunk padding, rejection cases, multipart
-  framing.
+  framing. `tests/test_audio_format.cpp` runs real ffmpeg MP3 encoding and
+  checks empty/invalid input and missing-encoder errors.
 - **Integration** (`ctest -L integration`, skips cleanly if the service is
-  down): `tests/integration.sh` — 13 curl-based checks: auth gates (401/403),
-  TTS returns WAV, **STT round trip** (TTS output transcribed back), model
-  lists, `/skill` docs, `/admin/engine/stt`, key create/revoke.
+  down): `tests/integration.sh` — auth gates (401/403), WAV and ffprobe-validated
+  MP3, **STT round trip**, model lists, `/skill` docs, engine status, agent-scope
+  restrictions, master protection, and revoke/restore/permanent-delete.
 - **Concurrency repros**: audio teardown/drain bugs were proven with tiny
   extracted-struct harnesses run under `timeout` (`/tmp/pw_repro*.cpp`
   pattern) — no GUI clicking required. See invariants below.
@@ -197,7 +216,7 @@ re-running `install.sh` after web changes.
   (compiled default `kSttModel`).
 - WebUI changes require re-running `install.sh` to reach the served copy.
 - **Bump the header badge on every WebUI change** (`web/index.html`, currently
-  `v0.1.9`). The badge + `no-cache` exist because heuristic browser caching
+  `v0.3.0`). The badge + `no-cache` exist because heuristic browser caching
   showed a user a pre-fix page for hours while `curl` proved the server was
   correct. Verify UI complaints at three layers: served bytes (`curl`), a
   fresh-browser render, and the request log

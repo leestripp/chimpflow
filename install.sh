@@ -13,6 +13,19 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 PORT="${CHIMPFLOW_LISTEN_PORT:-8090}"
 ENGINE_URL="${CHIMPFLOW_ENGINE_URL:-http://127.0.0.1:8080}"
+FFMPEG="${CHIMPFLOW_FFMPEG:-/usr/bin/ffmpeg}"
+ENGINE_HOME="${CHIMPFLOW_ENGINE_HOME:-/projects/AI/ChimpFlow/engine}"
+WHISPER_HOME="${CHIMPFLOW_WHISPER_HOME:-$HOME/Apps/whisper.cpp}"
+
+if ! command -v "$FFMPEG" >/dev/null 2>&1; then
+  echo "ERROR: ffmpeg not found at $FFMPEG (needed for MP3 responses)." >&2
+  echo "Install ffmpeg or set CHIMPFLOW_FFMPEG in $ENV_FILE." >&2
+  exit 1
+fi
+if ! "$FFMPEG" -hide_banner -encoders 2>/dev/null | grep 'libmp3lame' >/dev/null; then
+  echo "ERROR: $FFMPEG does not provide the libmp3lame encoder." >&2
+  exit 1
+fi
 
 echo "==> Building ($APP)"
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -23,7 +36,7 @@ mkdir -p "$DATA/data" "$UNIT_DIR"
 cmake --install build --prefix "$HOME/.local"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-cat > "$ENV_FILE" << 'ENV'
+cat > "$ENV_FILE" << ENV
 # ChimpFlow configuration — systemd EnvironmentFile, read by chimpflow.service
 # and chimpflow-whisper.service. Edit, then restart both:
 #   systemctl --user restart chimpflow chimpflow-whisper
@@ -34,12 +47,19 @@ CHIMPFLOW_STT_URL=http://127.0.0.1:8081
 # Voice catalog for GET /v1/voices: dir of engine voice samples (*.wav).
 # Ids served = file basenames, matching what the engine resolves `voice` to.
 # Leave unset to disable voice listing (the endpoint then answers 503).
-CHIMPFLOW_VOICES_DIR=/projects/AI/ChimpFlow/engine/voice_samples
+CHIMPFLOW_ENGINE_HOME=$ENGINE_HOME
+CHIMPFLOW_WHISPER_HOME=$WHISPER_HOME
+CHIMPFLOW_VOICES_DIR=$ENGINE_HOME/voice_samples
 # Whisper model basename (the whisper unit appends .bin). Single source for
 # both the status page and the whisper service's --model.
 CHIMPFLOW_STT_MODEL=ggml-tiny.en
+# Local WAV-to-MP3 encoder (libmp3lame is required).
+CHIMPFLOW_FFMPEG=/usr/bin/ffmpeg
 ENV
   echo "==> Created $ENV_FILE (defaults)"
+elif ! grep -q '^CHIMPFLOW_FFMPEG=' "$ENV_FILE"; then
+  printf '\n# Local WAV-to-MP3 encoder (libmp3lame is required).\nCHIMPFLOW_FFMPEG=/usr/bin/ffmpeg\n' >> "$ENV_FILE"
+  echo "==> Added CHIMPFLOW_FFMPEG to $ENV_FILE"
 fi
 
 echo "==> Stopping any dev instance on :$PORT"
@@ -48,7 +68,7 @@ pkill -x "$APP" 2>/dev/null && sleep 1 || true
 echo "==> Installing systemd user unit"
 cat > "$UNIT_DIR/$APP.service" << 'UNIT'
 [Unit]
-Description=ChimpFlow voice service (OmniNet TTS proxy)
+Description=ChimpFlow local TTS/STT gateway (OmniNet)
 Wants=chimpflow-tts.service chimpflow-whisper.service
 After=chimpflow-tts.service chimpflow-whisper.service
 
@@ -66,14 +86,14 @@ PrivateTmp=true
 WantedBy=default.target
 UNIT
 echo "==> Installing engine systemd user units (TTS + STT)"
-cat > "$UNIT_DIR/$APP-tts.service" << 'UNIT'
+cat > "$UNIT_DIR/$APP-tts.service" << UNIT
 [Unit]
 Description=audio.cpp server for ChimpFlow TTS (local model, localhost only)
 
 [Service]
 Type=simple
-WorkingDirectory=/projects/AI/ChimpFlow/engine
-ExecStart=/projects/AI/ChimpFlow/engine/audiocpp_server --config /projects/AI/ChimpFlow/engine/server.json
+WorkingDirectory=$ENGINE_HOME
+ExecStart=$ENGINE_HOME/audiocpp_server --config $ENGINE_HOME/server.json
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
@@ -82,14 +102,14 @@ PrivateTmp=true
 [Install]
 WantedBy=default.target
 UNIT
-cat > "$UNIT_DIR/$APP-whisper.service" << 'UNIT'
+cat > "$UNIT_DIR/$APP-whisper.service" << UNIT
 [Unit]
 Description=whisper.cpp server for ChimpFlow STT (local model, localhost only)
 
 [Service]
 Type=simple
 EnvironmentFile=-%h/.local/share/chimpflow/chimpflow.env
-ExecStart=%h/Apps/whisper.cpp/build/bin/whisper-server --host 127.0.0.1 --port 8081 --model %h/Apps/whisper.cpp/models/${CHIMPFLOW_STT_MODEL}.bin
+ExecStart=$WHISPER_HOME/build/bin/whisper-server --host 127.0.0.1 --port 8081 --model $WHISPER_HOME/models/\${CHIMPFLOW_STT_MODEL}.bin
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true

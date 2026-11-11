@@ -19,11 +19,12 @@ All three are `WantedBy=default.target` and survive reboot/logout via
 
 - `~/.local/lib/chimpflow/` — binary + `web/` (the WebUI served at `/`)
 - `~/.local/share/chimpflow/` — service `WorkingDirectory`
-  - `chimpflow.env` — configuration: `CHIMPFLOW_*` env vars read by BOTH services (see below)
+  - `chimpflow.env` — configuration: `CHIMPFLOW_*` env vars read by the gateway and whisper unit; engine checkout paths are also consumed by `install.sh`
   - `data/chimpflow.db` — API key store (sha-hashed keys, usage counts)
   - `ADMIN_KEY` — bootstrap admin key, mode 600 (created by `install.sh` on a fresh db)
 - `~/.config/systemd/user/` — `chimpflow.service`, `chimpflow-tts.service`, `chimpflow-whisper.service`
-- `/projects/AI/ChimpFlow/engine/` — audio.cpp engine checkout (`server.json`, `models/` incl. `models/embeddings`)
+- `/projects/AI/ChimpFlow/engine/` — default audio.cpp checkout; override with `CHIMPFLOW_ENGINE_HOME`
+- `~/Apps/whisper.cpp/` — default whisper.cpp checkout; override with `CHIMPFLOW_WHISPER_HOME`
 
 ## Prerequisites
 
@@ -32,6 +33,9 @@ All three are `WantedBy=default.target` and survive reboot/logout via
   fast-forwards the checkout to the origin/main tip, so any build always
   compiles the latest upstream code. Never pin a SHA, never patch the
   fetched copy locally.
+- ffmpeg with the `libmp3lame` encoder at `/usr/bin/ffmpeg` (or set
+  `CHIMPFLOW_FFMPEG`). ChimpFlow uses this to provide real MP3 responses even
+  though audio.cpp itself emits WAV. `install.sh` checks this before building.
 - audio.cpp: built `audiocpp_server` with `server.json`, TTS model
   (`models/pocket-tts-english-q8_0.gguf`), and the speaker-embedding voice dir.
 - whisper.cpp: built `whisper-server` at `~/Apps/whisper.cpp/build/bin/` and the
@@ -67,6 +71,22 @@ Both have `Restart=on-failure` and `WantedBy=default.target`. The engine
 checkouts themselves (`/projects/AI/ChimpFlow/engine`, `~/Apps/whisper.cpp`) must
 of course exist — see Prerequisites.
 
+## Installing on another local machine (for example ubuntu-pc)
+
+A user-level install does not require `/projects` to be writable. For example,
+put the repository and audio.cpp engine at `~/ChimpFlow`, whisper.cpp at
+`~/Apps/whisper.cpp`, and create `~/.local/share/chimpflow/chimpflow.env` with
+`CHIMPFLOW_ENGINE_HOME=/home/lee/ChimpFlow/engine` and
+`CHIMPFLOW_WHISPER_HOME=/home/lee/Apps/whisper.cpp` before running
+`bash install.sh` as user `lee`. Ensure CMake can fetch OmniNet (SSH access to
+GitLab), or configure once with
+`-DFETCHCONTENT_SOURCE_DIR_OMNINET=/path/to/a/clean/upstream/checkout`.
+When copying the engine from another machine, also rewrite the absolute
+`models[].path` in `engine/server.json` to match `CHIMPFLOW_ENGINE_HOME`, then
+restart `chimpflow-tts`. The service binds localhost by default, so the WebUI
+is at `http://127.0.0.1:8090` on ubuntu-pc; use SSH port forwarding rather
+than exposing it without authentication.
+
 ## Updating
 
 ```bash
@@ -93,10 +113,13 @@ compiled-in defaults in `src/main.cpp` then apply). Edit it, then
 | `CHIMPFLOW_ENGINE_URL` | `http://127.0.0.1:8080` | audio.cpp TTS engine |
 | `CHIMPFLOW_STT_URL` | `http://127.0.0.1:8081` | whisper.cpp STT engine |
 | `CHIMPFLOW_STT_MODEL` | `ggml-tiny.en` | whisper model basename; the whisper unit appends `.bin`, so this one value drives both the status page and the service's `--model` |
+| `CHIMPFLOW_FFMPEG` | `/usr/bin/ffmpeg` | local WAV→MP3 encoder; must provide `libmp3lame` |
+| `CHIMPFLOW_ENGINE_HOME` | `/projects/AI/ChimpFlow/engine` | audio.cpp checkout used by the generated TTS unit and default voices path |
+| `CHIMPFLOW_WHISPER_HOME` | `~/Apps/whisper.cpp` | whisper.cpp checkout used by the generated STT unit |
 
 The effective values are logged at startup
 (`journalctl --user -u chimpflow`) as
-`[chimpflow] listen=… engine=… stt=… sttModel=…`. audio.cpp itself keeps its
+`[chimpflow] listen=… engine=… stt=… sttModel=… ffmpeg=…`. audio.cpp itself keeps its
 own `server.json` + CLI flags.
 
 ## Verification
@@ -116,6 +139,9 @@ badge shows the UI build version.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | TTS returns 502 / audio.cpp card red | `chimpflow-tts.service` down | `systemctl --user restart chimpflow-tts` |
+| MP3 returns 502 while WAV works | ffmpeg missing or no `libmp3lame` | check `CHIMPFLOW_FFMPEG`, run `ffmpeg -encoders`, restart `chimpflow` |
+| Long-form input returns 413 | Input exceeds 131072 bytes or 512 chunks | split the book at chapter boundaries; keep each chapter in one background request |
+| Long-form WAV assembly returns 502 | Engine returned malformed or inconsistent PCM16 WAV | inspect `journalctl --user -u chimpflow` for the failed chunk; verify `chimpflow-tts` |
 | STT card red | `chimpflow-whisper.service` down | `systemctl --user restart chimpflow-whisper` |
 | WebUI shows old layout after deploy | browser cache | badge tells the truth — hard refresh or `?v=N` |
 | Status shows wrong STT model | `kSttModel` ≠ whisper `--model` | align, rebuild, restart |

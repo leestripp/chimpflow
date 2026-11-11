@@ -1,4 +1,7 @@
-// ChimpFlow - OmniNet voice service: API-key auth + TTS proxy to audio.cpp
+// ChimpFlow - OmniNet voice service: API-key auth + local TTS/STT gateway
+#include "audio_format.h"
+#include "text_chunk.h"
+
 #include "OmniNet.h"
 #include "http/HttpClient.h"
 #include "token/ApiKeyStore.h"
@@ -7,6 +10,7 @@
 #include "token/ApiKey.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <system_error>
@@ -31,6 +35,10 @@ constexpr std::string_view kSttBase = "http://127.0.0.1:8081";
 // model-listing endpoint, so the status route reports this value — the
 // whisper unit reads the same CHIMPFLOW_STT_MODEL var (single source).
 constexpr std::string_view kSttModel = "ggml-tiny.en";
+constexpr std::string_view kFfmpeg = "/usr/bin/ffmpeg";
+constexpr std::string_view kMasterKeyName = "chimpflow-bootstrap-admin";
+constexpr std::size_t kMaxLongFormBytes = 128 * 1024;
+constexpr std::size_t kMaxTextChunks = 512;
 
 // Environment override: empty/unset falls back to the compiled default.
 std::string envOr(const char* name, std::string_view fallback) {
@@ -60,191 +68,178 @@ void sendJson(Response& resp, StatusCode code, std::string_view body) {
     resp.setBody(body);
 }
 
+bool isMasterKey(const Token::ApiKey& key) {
+    return key.name == kMasterKeyName && key.hasScope("admin");
+}
+
+// OmniNet has revoke but no restore operation. Keep the inverse lifecycle in
+// ChimpFlow's own code; RETURNING makes the conditional update atomic.
+bool restoreKey(DB::Database& db, std::string_view keyId) {
+    auto stmt = db.prepare(
+        "UPDATE api_keys SET revoked = 0, revoked_at = NULL "
+        "WHERE id = ? AND revoked = 1 RETURNING id");
+    stmt.bind(1, keyId);
+    return stmt.step();
+}
+
 // Agent-facing guide to this API, served at /skill/ (see README "Skill endpoint").
 // Written for an AI agent reader: task-oriented, exact request shapes, honest errors.
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
-description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (WAV narration, voice output, read-aloud) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
-version: 0.1.2
+description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (prefer MP3) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
+version: 0.3.0
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
 
 # ChimpFlow — local TTS + STT gateway for agents
 
-ChimpFlow is a localhost-only voice service. It checks API keys and proxies
-text-to-speech to the audio.cpp engine (TTS) and transcription to whisper.cpp
-(STT). It never leaves this machine.
+ChimpFlow checks scoped API keys and proxies text-to-speech to audio.cpp and
+transcription to whisper.cpp. Audio and text stay on this machine.
 
 ## Authentication
 
-Every route except `/healthz` and `/skill/` requires a bearer key.
-Any valid key works for `/v1/models`; the rest additionally check scopes:
+Every route except `/healthz`, `/skill/`, and the WebUI assets requires:
 
     Authorization: Bearer omn_sk_...
 
-Keys carry scopes: `admin` (key management), `tts` (speech),
-`stt` (transcription). If you do not have a key, ask the human operator —
-or create one with an admin key (below). The WebUI at the base URL manages
-keys interactively.
+Agent keys carry `tts` (speech) and/or `stt` (transcription). The human's
+bootstrap master key also has `admin` for key management. Ask the operator for
+an agent key; never request or use the master key for ordinary audio work.
+Any valid key can call `/v1/models` and `/v1/voices`.
 
-## Endpoints
+## Text to speech — POST /v1/audio/speech (scope: tts)
 
-### GET /healthz — no auth
+**Prefer MP3.** It is much smaller than WAV and is the right default for agent
+voice output. Use WAV only when a consumer specifically needs uncompressed PCM.
 
-    curl -s http://127.0.0.1:8090/healthz
-    {"status":"ok","service":"chimpflow"}
-
-### POST /v1/audio/speech — scope: tts
-
-OpenAI-compatible speech endpoint. Request body:
-
-    {
-      "model": "pocket-tts",      // as listed by GET /v1/models
-      "input": "Text to speak.",
-      "voice": "alba",            // voice id from GET /v1/voices
-      "response_format": "wav"    // format the engine supports
-    }
-
-Example:
-
-    curl -s -X POST http://127.0.0.1:8090/v1/audio/speech \
-      -H "Authorization: Bearer $KEY" \
+    curl -fsS -X POST http://127.0.0.1:8090/v1/audio/speech \
+      -H "Authorization: Bearer $CHIMPFLOW_KEY" \
       -H "Content-Type: application/json" \
-      -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"wav"}' \
-      -o speech.wav
+      -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"mp3"}' \
+      -o speech.mp3
 
-Returns the audio bytes (Content-Type audio/wav; PCM 16-bit mono 24 kHz for
-pocket-tts) on success, JSON error otherwise. The body is forwarded to the
-engine as-is, so engine-specific extra fields pass through.
+Request fields:
 
-### GET /admin/keys — scope: admin
+- `model`: id discovered from `GET /v1/models` (currently `pocket-tts`).
+- `input`: text to speak.
+- `voice`: id discovered from `GET /v1/voices`.
+- `response_format`: `mp3` (recommended) or `wav`.
 
-    curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8090/admin/keys
+MP3 returns `Content-Type: audio/mpeg`; WAV returns `audio/wav` (PCM 16-bit
+mono 24 kHz for pocket-tts). Unsupported formats return 400. ChimpFlow performs
+MP3 encoding locally with ffmpeg. Extra engine-specific fields pass through.
 
-Returns an array of keys: id, name, scopes, useCount, revoked, expired, createdAt.
+### Short speech vs. a whole chapter
 
-### POST /admin/keys — scope: admin
+Use the SAME `/v1/audio/speech` endpoint for both. ChimpFlow automatically
+splits valid text input at paragraph/sentence/word boundaries (about 1200 bytes
+per engine request), synthesizes sequentially, joins the PCM, and returns ONE
+complete WAV or MP3. It never returns a playlist or partial chapter. The
+`X-ChimpFlow-Text-Chunks` response header reports the number of joined chunks.
 
-    curl -s -X POST http://127.0.0.1:8090/admin/keys \
-      -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
-      -d '{"name":"my-agent","scopes":["tts"]}'
-    {"id":"...","rawKey":"omn_sk_..."}
+- **Need speech back immediately / incremental playback?** Split sentences in
+  your own client and make ordinary foreground requests as each is needed.
+- **Want one long-form audio file?** Send the whole chapter in one request and
+  **run long-form synthesis as a background process**. Its automatic completion
+  trigger tells you when the file is ready; do not poll a job endpoint (there
+  isn't one). Use a generous HTTP client timeout because the response arrives
+  only after all chunks and encoding finish.
 
-`rawKey` is returned ONCE. Store it in the environment or a secrets store,
-never in a committed file. If lost, revoke and recreate.
+Long-form input is limited to 131072 UTF-8 bytes and 512 chunks (413 when
+exceeded). Joined WAV is capped at 256 MiB and MP3 at 64 MiB. Existing short
+clients use exactly the same request and response shapes; no client migration
+or separate long-form endpoint is needed.
 
-### DELETE /admin/keys/<id> — scope: admin
+## Speech to text — POST /v1/audio/transcriptions (scope: stt)
 
-    curl -s -X DELETE -H "Authorization: Bearer $ADMIN_KEY" \
-      http://127.0.0.1:8090/admin/keys/<id>
-    {"ok":true}
-
-### DELETE /admin/keys/<id>/permanent — scope: admin
-
-Permanently removes a REVOKED key record. Returns 409 if the key is still
-active (revoke it first), 404 if it does not exist, or `{"ok":true}` on success.
-
-### POST /v1/audio/transcriptions — scope: stt
-
-OpenAI-compatible transcription. Multipart upload, forwarded to whisper.cpp:
-
-    curl -s -X POST http://127.0.0.1:8090/v1/audio/transcriptions \
-      -H "Authorization: Bearer $KEY" \
-      -F file=@speech.wav \
+    curl -fsS -X POST http://127.0.0.1:8090/v1/audio/transcriptions \
+      -H "Authorization: Bearer $CHIMPFLOW_KEY" \
+      -F file=@speech.mp3 \
       -F model=whisper
 
-Returns JSON {"text":"..."} (verbose_json / other formats as the engine supports).
-Any audio format whisper.cpp accepts (wav, mp3, ogg, ...); 16 kHz mono WAV is the
-safest. Keep clips modest — the gateway rejects bodies over 10 MB.
+Returns JSON such as `{"text":"..."}`. Multipart accepts formats whisper.cpp
+supports (WAV, MP3, OGG, and others); 16 kHz mono WAV is safest. Keep uploads
+below the gateway's 24 MB request limit.
 
-### GET /v1/voices — any valid key
+## Discovery
 
-    curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8090/v1/voices
-    {"object":"list","data":[{"id":"alba","object":"voice"}, ...]}
+    curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" \
+      http://127.0.0.1:8090/v1/models
+    curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" \
+      http://127.0.0.1:8090/v1/voices
 
-Lists the voices the engine can speak — use these ids as the `voice`
-value in the speech route. The engine itself has no voice-listing
-endpoint, so ChimpFlow scans the voice-samples directory configured via
-`CHIMPFLOW_VOICES_DIR` (see chimpflow.env). Returns 503 if unset/unreadable.
+Discover model and voice ids at runtime instead of hardcoding them. `/v1/voices`
+returns 503 if `CHIMPFLOW_VOICES_DIR` is not configured.
 
-### GET /v1/models — any valid key
+## Health and errors
 
-    curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8090/v1/models
+    curl -fsS http://127.0.0.1:8090/healthz
 
-Models currently loaded in the engine — use these ids as the `model`
-value in the speech route. (The same list is also at
-`/admin/engine/models` for admin keys.) Voice ids come from
-`/v1/voices`, not from this list.
+Errors are JSON: `{"error":"human-readable message"}`.
 
-## Adding ChimpFlow to your app
+- 400: invalid request or unsupported response format; correct the request.
+- 401: missing, revoked, expired, or invalid key; ask the operator for a key.
+- 403: valid key without the required scope; use a key with `tts` or `stt`.
+- 413: long-form input exceeds the documented byte/chunk limit.
+- 502: companion engine, WAV assembly, or local MP3 encoder failed; tell the
+  operator and do not retry-loop.
+- 503: voice catalog is not configured.
 
-ChimpFlow mirrors the OpenAI audio API, so client libraries work by pointing
-them at the gateway (base_url http://127.0.0.1:8090/v1, api_key = your
-chimpflow key). Integration checklist:
+## Agent integration checklist
 
-1. **Obtain a key from the human operator** — the gateway never
-   self-provisions. With an admin key, mint a dedicated least-privilege key
-   for your app (scopes ["tts"], ["stt"], or both); rawKey shows once — store
-   it in the app's environment or a secrets store, never in source control.
-   The demo's convention: CHIMPFLOW_URL / CHIMPFLOW_KEY / CHIMPFLOW_VOICE.
+1. Store the key in `CHIMPFLOW_KEY` or a secrets manager, never source control.
+2. Use base URL `http://127.0.0.1:8090` on the machine where ChimpFlow runs.
+   Do not expose the service or send its keys/text to a cloud service.
+3. Check `/healthz`, then discover `/v1/models` and `/v1/voices`.
+4. For speech, request `response_format: "mp3"` unless WAV is required.
+5. For immediate speech, self-split and use foreground requests. For one chapter
+   file, post the whole text as a background process and wait for its automatic
+   completion trigger rather than polling.
+6. Keep the key out of logs. A generated raw key is shown only once.
 
-2. **Discover at runtime; don't hardcode.** On startup GET /v1/models for the
-   `model` id and GET /v1/voices for the `voice` id — the engine's loaded
-   model and the voice catalog can both change.
+## Master-only key administration (scope: admin)
 
-3. **Handle the error contract deliberately:** 401 = bad key, stop and tell
-   the operator (retrying cannot help); 403 = key lacks scope, needs a
-   differently-scoped key; 502 = an engine is down (audio.cpp :8080 or
-   whisper :8081), surface it instead of retry-looping.
+The WebUI uses the bootstrap master key. Agent keys cannot include `admin`.
 
-4. **Preflight batches:** check /healthz first — one bad key 401s every call
-   in the job.
-
-5. **Stay localhost:** bind nothing to a LAN address; never forward keys or
-   text off this machine.
-
-## Error shape
-
-All errors are JSON: {"error":"human-readable message"}
-
-    401  missing or invalid api key
-    403  valid key, missing required scope
-    502  engine unreachable (the audio.cpp server on :8080 is down)
-
-## Agent notes
-
-- localhost only: 127.0.0.1:8090. Never send these keys or text anywhere else.
-- If speech returns 502, the engine server is down — tell the human operator
-  instead of retrying in a loop.
-- Check /healthz before a batch job; one bad key will 401 every call in it.
-- Voices are engine-loaded speaker embeddings; the right values come from
-  GET /v1/voices, not from memory.
+- `GET /admin/keys` — list ids, names, scopes, usage, master/revoked/expired state.
+- `POST /admin/keys` with `{"name":"agent-name","scopes":["tts","stt"]}` —
+  create an agent key; `rawKey` is returned once. Scopes may be `tts` and/or
+  `stt` only; omitting scopes grants both.
+- `DELETE /admin/keys/<id>` — revoke an active key.
+- `POST /admin/keys/<id>/restore` — restore a revoked key.
+- `DELETE /admin/keys/<id>/permanent` — permanently delete a revoked key;
+  active keys return 409. The bootstrap master key cannot be revoked or deleted.
+- `GET /admin/engine/models` — audio.cpp model list.
+- `GET /admin/engine/stt` — whisper.cpp reachability and configured model.
 )CHIMP";
 
 // Same guide as structured data, for agent frameworks that prefer JSON.
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
-  "description": "Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (WAV narration, voice output, read-aloud) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.",
-  "version": "0.1.2",
+  "description": "Local authenticated text-to-speech (prefer MP3) and speech-to-text for agents; no cloud.",
+  "version": "0.3.0",
   "base_url": "http://127.0.0.1:8090",
-  "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "scopes": ["admin", "tts", "stt"]},
+  "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "agent_scopes": ["tts", "stt"], "master_scope": "admin"},
+  "recommended_audio_format": "mp3",
+  "long_form_tts": {"endpoint": "/v1/audio/speech", "automatic": true, "max_input_bytes": 131072, "target_chunk_bytes": 1200, "max_chunks": 512, "response": "one complete WAV or MP3", "chunk_count_header": "X-ChimpFlow-Text-Chunks", "execution": "background process with automatic completion trigger"},
   "endpoints": [
-    {"method": "GET",  "path": "/healthz",              "auth": "none"},
-    {"method": "GET",  "path": "/skill/",               "auth": "none", "notes": "this document, markdown"},
-    {"method": "GET",  "path": "/skill/manifest.json",  "auth": "none", "notes": "this document, structured"},
-    {"method": "GET",  "path": "/v1/models",            "auth": "bearer", "notes": "no scope required; discover model ids"},
-    {"method": "GET",  "path": "/v1/voices",            "auth": "bearer", "notes": "no scope required; discover voice ids for the speech route"},
-    {"method": "POST", "path": "/v1/audio/transcriptions", "auth": "bearer", "scope": "stt", "content_type": "multipart/form-data", "body": {"file": "@audio.wav", "model": "whisper"}, "returns": "JSON {\"text\":\"...\"}"},
-    {"method": "POST", "path": "/v1/audio/speech",      "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "pocket-tts", "input": "text", "voice": "alba", "response_format": "wav"}, "returns": "audio bytes (WAV)"},
-    {"method": "GET",  "path": "/admin/keys",           "auth": "bearer", "scope": "admin"},
-    {"method": "POST", "path": "/admin/keys",           "auth": "bearer", "scope": "admin", "body": {"name": "key name", "scopes": ["tts"]}, "notes": "rawKey returned once"},
-    {"method": "DELETE", "path": "/admin/keys/{id}",    "auth": "bearer", "scope": "admin"},
-    {"method": "DELETE", "path": "/admin/keys/{id}/permanent", "auth": "bearer", "scope": "admin", "notes": "permanently delete a revoked key; active keys return 409"},
-    {"method": "GET",  "path": "/admin/engine/models",  "auth": "bearer", "scope": "admin", "notes": "engine model list (proxied; no voices)"},
-    {"method": "GET",  "path": "/admin/engine/stt",     "auth": "bearer", "scope": "admin", "notes": "whisper.cpp reachability + served model"}
+    {"method": "GET", "path": "/healthz", "auth": "none"},
+    {"method": "GET", "path": "/skill/", "auth": "none", "returns": "agent guide markdown"},
+    {"method": "GET", "path": "/skill/manifest.json", "auth": "none"},
+    {"method": "GET", "path": "/v1/models", "auth": "bearer", "notes": "any valid key"},
+    {"method": "GET", "path": "/v1/voices", "auth": "bearer", "notes": "any valid key"},
+    {"method": "POST", "path": "/v1/audio/speech", "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "pocket-tts", "input": "text", "voice": "alba", "response_format": "mp3"}, "response_formats": {"mp3": "audio/mpeg (recommended)", "wav": "audio/wav"}, "notes": "automatic paragraph/sentence splitting and joined long-form output; use a background process for chapters"},
+    {"method": "POST", "path": "/v1/audio/transcriptions", "auth": "bearer", "scope": "stt", "content_type": "multipart/form-data", "body": {"file": "@speech.mp3", "model": "whisper"}, "returns": "JSON transcription"},
+    {"method": "GET", "path": "/admin/keys", "auth": "bearer", "scope": "admin"},
+    {"method": "POST", "path": "/admin/keys", "auth": "bearer", "scope": "admin", "body": {"name": "agent-name", "scopes": ["tts", "stt"]}, "notes": "agent scopes only; rawKey returned once; scopes default to tts+stt"},
+    {"method": "DELETE", "path": "/admin/keys/{id}", "auth": "bearer", "scope": "admin", "notes": "revoke; bootstrap master is protected"},
+    {"method": "POST", "path": "/admin/keys/{id}/restore", "auth": "bearer", "scope": "admin", "notes": "restore a revoked key"},
+    {"method": "DELETE", "path": "/admin/keys/{id}/permanent", "auth": "bearer", "scope": "admin", "notes": "revoked keys only; active 409; bootstrap master protected"},
+    {"method": "GET", "path": "/admin/engine/models", "auth": "bearer", "scope": "admin"},
+    {"method": "GET", "path": "/admin/engine/stt", "auth": "bearer", "scope": "admin"}
   ],
-  "errors": {"shape": {"error": "message"}, "401": "missing/invalid key", "403": "missing scope", "502": "engine down"}
+  "errors": {"shape": {"error": "message"}, "400": "invalid request/format", "413": "long-form input too large", "401": "missing/invalid/revoked key", "403": "missing scope", "502": "engine or MP3 encoder failed", "503": "voice catalog unconfigured"}
 })CHIMP";
 
 }  // namespace
@@ -267,7 +262,7 @@ int main() {
         auto res = keys.create("admin", "chimpflow-bootstrap-admin",
                                {"admin", "tts", "stt"});
         std::cout << "\n=== CHIMPFLOW BOOTSTRAP ADMIN KEY (shown once) ===\n"
-                  << res.rawKey << "\n===================================================\n\n";
+                  << res.rawKey << "\n===================================================" << std::endl;
     }
 
     // --- HTTP server ---
@@ -278,6 +273,7 @@ int main() {
     const std::string cfgEngineBase = envOr("CHIMPFLOW_ENGINE_URL", kEngineBase);
     const std::string cfgSttBase    = envOr("CHIMPFLOW_STT_URL", kSttBase);
     const std::string cfgSttModel   = envOr("CHIMPFLOW_STT_MODEL", kSttModel);
+    const std::string cfgFfmpeg     = envOr("CHIMPFLOW_FFMPEG", kFfmpeg);
     // Voice catalog: dir of engine voice samples (*.wav). The engine has no
     // voice-listing endpoint, so GET /v1/voices derives ids from these files.
     // Empty/unset -> /v1/voices answers 503 with a configuration hint.
@@ -285,7 +281,8 @@ int main() {
     std::cout << "[chimpflow] listen=" << cfgListenHost << ":" << cfgListenPort
               << " engine=" << cfgEngineBase
               << " stt=" << cfgSttBase << " sttModel=" << cfgSttModel
-              << " voicesDir=" << (cfgVoicesDir.empty() ? "<unset>" : cfgVoicesDir) << "\n";
+              << " ffmpeg=" << cfgFfmpeg
+              << " voicesDir=" << (cfgVoicesDir.empty() ? "<unset>" : cfgVoicesDir) << std::endl;
 
     Server::Config serverConfig;
     serverConfig.address = cfgListenHost;  // localhost service; set 0.0.0.0 only if exposing to LAN
@@ -319,8 +316,10 @@ int main() {
         sendJson(resp, StatusCode::OK, kSkillManifest);
     });
 
-    // TTS: POST /v1/audio/speech  (OpenAI-compatible, proxied to audio.cpp)
-    server.post("/v1/audio/speech", [&keys, &cfgEngineBase](const Request& req, Response& resp) {
+    // TTS: split long-form prose into bounded engine requests, join the PCM,
+    // then return one WAV or locally encoded MP3. Non-JSON/legacy requests keep
+    // the original single-request proxy behavior.
+    server.post("/v1/audio/speech", [&keys, &cfgEngineBase, &cfgFfmpeg](const Request& req, Response& resp) {
         auto tok = bearerToken(req);
         if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
             R"({"error":"missing Authorization: Bearer <api_key>"})");
@@ -332,21 +331,118 @@ int main() {
         if (!v.key->hasScope("tts"))
             return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"key lacks 'tts' scope"})");
 
-        // Forward the request body as-is to the engine
-        ClientRequest fwd;
-        fwd.method("POST").url(cfgEngineBase + "/v1/audio/speech")
-           .header("Content-Type", "application/json")
-           .body(req.bodyAsString());
-        auto r = Client::get_instance().send_blocking(fwd);
-        if (!r) {
-            return sendJson(resp, StatusCode::BAD_GATEWAY,
-                R"({"error":"engine unreachable"})");
+        std::string engineBody(req.bodyAsString());
+        bool wantsMp3 = false;
+        const auto requestJson = nlohmann::json::parse(engineBody, nullptr, false);
+        if (!requestJson.is_discarded() && requestJson.is_object()) {
+            if (requestJson.contains("response_format")) {
+                if (!requestJson["response_format"].is_string()) {
+                    return sendJson(resp, StatusCode::BAD_REQUEST,
+                        R"({"error":"response_format must be 'mp3' or 'wav'"})");
+                }
+                const auto format = requestJson["response_format"].get<std::string>();
+                if (format != "mp3" && format != "wav") {
+                    return sendJson(resp, StatusCode::BAD_REQUEST,
+                        R"({"error":"unsupported response_format; use 'mp3' or 'wav'"})");
+                }
+                wantsMp3 = format == "mp3";
+            }
         }
-        auto& er = r.value();
-        resp.setStatus(er.status());
-        resp.setContentType(er.header("Content-Type").empty()
-                            ? "audio/wav" : er.header("Content-Type"));
-        resp.setBody(er.body());
+
+        ClientConfig engineClientConfig;
+        engineClientConfig.request_timeout = std::chrono::seconds{180};
+
+        auto sendAudio = [&](std::span<const std::uint8_t> wav) {
+            if (wantsMp3) {
+                try {
+                    auto mp3 = chimpflow::encodeMp3(wav, cfgFfmpeg);
+                    resp.setStatus(StatusCode::OK);
+                    resp.setContentType("audio/mpeg");
+                    resp.setBody(std::move(mp3));
+                    return;
+                } catch (const std::exception& e) {
+                    std::cerr << "[chimpflow] MP3 encoding failed: " << e.what() << '\n';
+                    return sendJson(resp, StatusCode::BAD_GATEWAY,
+                        R"({"error":"local MP3 encoding failed; check CHIMPFLOW_FFMPEG"})");
+                }
+            }
+            resp.setStatus(StatusCode::OK);
+            resp.setContentType("audio/wav");
+            resp.setBody(wav);
+        };
+
+        const bool hasText = !requestJson.is_discarded() && requestJson.is_object() &&
+                             requestJson.contains("input") && requestJson["input"].is_string();
+        if (!hasText) {
+            ClientRequest fwd;
+            fwd.method("POST").url(cfgEngineBase + "/v1/audio/speech")
+               .header("Content-Type", "application/json").body(engineBody);
+            auto r = Client::get_instance().send_blocking(fwd, engineClientConfig);
+            if (!r) return sendJson(resp, StatusCode::BAD_GATEWAY, R"({"error":"engine unreachable"})");
+            auto& er = r.value();
+            if (er.status() == StatusCode::OK) return sendAudio(er.body());
+            resp.setStatus(er.status());
+            resp.setContentType(er.header("Content-Type").empty() ? "application/json" : er.header("Content-Type"));
+            resp.setBody(er.body());
+            return;
+        }
+
+        const auto input = requestJson["input"].get<std::string>();
+        if (input.size() > kMaxLongFormBytes) {
+            return sendJson(resp, StatusCode::PAYLOAD_TOO_LARGE,
+                R"({"error":"long-form input exceeds the 131072-byte chapter limit"})");
+        }
+        const auto chunks = chimpflow::splitLongForm(input);
+        if (chunks.empty()) {
+            return sendJson(resp, StatusCode::BAD_REQUEST, R"({"error":"input must contain text"})");
+        }
+        if (chunks.size() > kMaxTextChunks) {
+            return sendJson(resp, StatusCode::PAYLOAD_TOO_LARGE,
+                R"({"error":"long-form input requires too many speech chunks"})");
+        }
+
+        auto engineJson = requestJson;
+        engineJson["response_format"] = "wav";
+        chimpflow::WavJoiner joiner;
+        for (std::size_t i = 0; i < chunks.size(); ++i) {
+            engineJson["input"] = chunks[i];
+            ClientRequest fwd;
+            fwd.method("POST").url(cfgEngineBase + "/v1/audio/speech")
+               .header("Content-Type", "application/json").body(engineJson.dump());
+            auto r = Client::get_instance().send_blocking(fwd, engineClientConfig);
+            if (!r) {
+                std::cerr << "[chimpflow] TTS engine unreachable on chunk " << (i + 1)
+                          << '/' << chunks.size() << '\n';
+                return sendJson(resp, StatusCode::BAD_GATEWAY, R"({"error":"engine unreachable during long-form synthesis"})");
+            }
+            auto& er = r.value();
+            if (er.status() != StatusCode::OK) {
+                std::cerr << "[chimpflow] TTS engine failed on chunk " << (i + 1)
+                          << '/' << chunks.size() << " with HTTP " << static_cast<int>(er.status()) << '\n';
+                resp.setStatus(er.status());
+                resp.setContentType(er.header("Content-Type").empty() ? "application/json" : er.header("Content-Type"));
+                resp.setBody(er.body());
+                return;
+            }
+            try {
+                joiner.append(er.body());
+            } catch (const std::exception& e) {
+                std::cerr << "[chimpflow] WAV assembly failed on chunk " << (i + 1)
+                          << '/' << chunks.size() << ": " << e.what() << '\n';
+                return sendJson(resp, StatusCode::BAD_GATEWAY,
+                    R"({"error":"engine returned invalid WAV audio during long-form synthesis"})");
+            }
+        }
+
+        try {
+            const auto wav = joiner.finish();
+            resp.setHeader("X-ChimpFlow-Text-Chunks", std::to_string(chunks.size()));
+            return sendAudio(wav);
+        } catch (const std::exception& e) {
+            std::cerr << "[chimpflow] WAV assembly failed: " << e.what() << '\n';
+            return sendJson(resp, StatusCode::BAD_GATEWAY,
+                R"({"error":"could not assemble long-form WAV audio"})");
+        }
     });
 
     // STT: POST /v1/audio/transcriptions (OpenAI-compatible, proxied to whisper.cpp)
@@ -453,6 +549,7 @@ int main() {
             arr.push_back({
                 {"id", k.id}, {"name", k.name}, {"scopes", k.scopes},
                 {"useCount", k.useCount}, {"revoked", k.revoked},
+                {"master", isMasterKey(k)},
                 {"expired", k.isExpired()},
                 {"createdAt", std::chrono::system_clock::to_time_t(k.createdAt)},
             });
@@ -460,20 +557,36 @@ int main() {
         sendJson(resp, StatusCode::OK, arr.dump());
     });
 
-    // Create key: {"name":"...","scopes":["tts",...]}
+    // Create a standard agent key. Master/admin keys are bootstrap-only.
     server.post("/admin/keys", [&keys, &requireAdmin](const Request& req, Response& resp) {
         Token::ApiKeyStore::ValidationResult v;
         if (!requireAdmin(req, v))
             return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
         try {
-            auto j = nlohmann::json::parse(req.bodyAsString());
-            std::string name = j.value("name", "unnamed");
-            std::vector<std::string> scopes = j.value("scopes", std::vector<std::string>{"tts"});
+            const auto j = nlohmann::json::parse(req.bodyAsString());
+            const std::string name = j.value("name", "");
+            if (name.empty())
+                return sendJson(resp, StatusCode::BAD_REQUEST, R"({"error":"key name required"})");
+            auto scopes = j.value("scopes", std::vector<std::string>{"tts", "stt"});
+            if (scopes.empty())
+                return sendJson(resp, StatusCode::BAD_REQUEST,
+                                R"({"error":"at least one agent scope is required"})");
+            for (const auto& scope : scopes) {
+                if (scope == "admin")
+                    return sendJson(resp, StatusCode::FORBIDDEN,
+                        R"({"error":"agent keys cannot include admin scope"})");
+                if (scope != "tts" && scope != "stt")
+                    return sendJson(resp, StatusCode::BAD_REQUEST,
+                        R"({"error":"agent key scopes must be 'tts' and/or 'stt'"})");
+            }
+            std::ranges::sort(scopes);
+            scopes.erase(std::unique(scopes.begin(), scopes.end()), scopes.end());
             auto res = keys.create("admin", name, scopes);
-            nlohmann::json out = {{"id", res.id}, {"rawKey", res.rawKey}};
+            nlohmann::json out = {{"id", res.id}, {"rawKey", res.rawKey},
+                                  {"name", name}, {"scopes", scopes}};
             sendJson(resp, StatusCode::CREATED, out.dump());
         } catch (const std::exception& e) {
-            nlohmann::json err = {{"error", std::string("bad JSON: ") + e.what()}};
+            nlohmann::json err = {{"error", std::string("bad key request: ") + e.what()}};
             sendJson(resp, StatusCode::BAD_REQUEST, err.dump());
         }
     });
@@ -483,12 +596,38 @@ int main() {
         Token::ApiKeyStore::ValidationResult v;
         if (!requireAdmin(req, v))
             return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
-        std::string path = std::string(req.path());
-        auto id = path.substr(path.find_last_of('/') + 1);
+        const std::string path = std::string(req.path());
+        const auto id = path.substr(path.find_last_of('/') + 1);
+        const auto existing = keys.getById(id);
+        if (!existing)
+            return sendJson(resp, StatusCode::NOT_FOUND, R"({"error":"key not found"})");
+        if (isMasterKey(*existing))
+            return sendJson(resp, StatusCode::CONFLICT,
+                            R"({"error":"bootstrap master key cannot be revoked"})");
         if (keys.revokeById(id))
             sendJson(resp, StatusCode::OK, R"({"ok":true})");
         else
             sendJson(resp, StatusCode::NOT_FOUND, R"({"error":"key not found"})");
+    });
+
+    // Restore a revoked key without ever revealing or changing its secret.
+    server.post(R"(/admin/keys/[a-zA-Z0-9_]+/restore)", [&db, &keys, &requireAdmin](const Request& req, Response& resp) {
+        Token::ApiKeyStore::ValidationResult v;
+        if (!requireAdmin(req, v))
+            return sendJson(resp, StatusCode::FORBIDDEN, R"({"error":"admin scope required"})");
+        const std::string path = std::string(req.path());
+        constexpr std::string_view prefix = "/admin/keys/";
+        constexpr std::string_view suffix = "/restore";
+        const auto id = path.substr(prefix.size(), path.size() - prefix.size() - suffix.size());
+        const auto existing = keys.getById(id);
+        if (!existing)
+            return sendJson(resp, StatusCode::NOT_FOUND, R"({"error":"key not found"})");
+        if (!existing->revoked)
+            return sendJson(resp, StatusCode::CONFLICT, R"({"error":"key is not revoked"})");
+        if (restoreKey(db, id))
+            sendJson(resp, StatusCode::OK, R"({"ok":true})");
+        else
+            sendJson(resp, StatusCode::CONFLICT, R"({"error":"key state changed; reload and retry"})");
     });
 
     // Permanent delete: DELETE /admin/keys/<id>/permanent (revoked only).
@@ -503,6 +642,9 @@ int main() {
         const auto existing = keys.getById(id);
         if (!existing)
             return sendJson(resp, StatusCode::NOT_FOUND, R"({"error":"key not found"})");
+        if (isMasterKey(*existing))
+            return sendJson(resp, StatusCode::CONFLICT,
+                            R"({"error":"bootstrap master key cannot be deleted"})");
         if (!existing->revoked)
             return sendJson(resp, StatusCode::CONFLICT,
                             R"({"error":"revoke the key before permanent deletion"})");

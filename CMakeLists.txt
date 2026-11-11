@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ChimpFlow VERSION 0.1.0 LANGUAGES CXX)
+project(ChimpFlow VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,7 +47,7 @@ if(omninet_POPULATED AND EXISTS "${omninet_SOURCE_DIR}/.git")
   endif()
 endif()
 
-add_executable(chimpflow src/main.cpp)
+add_executable(chimpflow src/main.cpp src/audio_format.cpp src/text_chunk.cpp)
 
 # OmniNet links OpenSSL/SQLite3/pthread/nlohmann_json PUBLIC, so its
 # interface propagates everything main.cpp needs.

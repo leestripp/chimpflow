@@ -13,23 +13,20 @@
   header { display:flex; align-items:center; gap:12px; padding:12px 20px;
            background:var(--panel); border-bottom:1px solid var(--border); }
   header h1 { font-size:18px; margin:0; }
-  header .dot { width:9px; height:9px; border-radius:50%; background:var(--dim); }
-  header .dot.on { background:var(--ok); }
-  main { max-width:860px; margin:24px auto; padding:0 16px; }
+  main { max-width:960px; margin:24px auto; padding:0 16px; }
   .card { background:var(--panel); border:1px solid var(--border);
           border-radius:10px; padding:20px; margin-bottom:16px; }
-  .engine { background:var(--bg); border:1px solid var(--border);
-            border-radius:8px; padding:12px 14px; }
-  .engine .etitle { font-weight:600; }
-  .engine .erow { margin-top:4px; }
   h2 { margin:0 0 14px; font-size:15px; color:var(--dim);
        text-transform:uppercase; letter-spacing:.05em; }
+  h3 { margin:20px 0 8px; font-size:14px; }
   label { display:block; margin:10px 0 4px; color:var(--dim); font-size:13px; }
-  input[type=text], input[type=password], textarea, select {
+  input[type=text], input[type=password], textarea {
     width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--border);
     background:var(--bg); color:var(--fg); font:inherit; }
   textarea { min-height:80px; resize:vertical; }
-  /* dropdowns — custom arrow, themed open-list (webui-design skill) */
+  #ttsText { min-height:360px; line-height:1.6; }
+  .long-form-note { margin:0 0 12px; padding:10px 12px; border:1px solid var(--border);
+                    border-radius:6px; background:var(--bg); color:var(--dim); }
   select { appearance:none; -webkit-appearance:none; width:100%;
     padding:8px 32px 8px 10px; border-radius:6px; border:1px solid var(--border);
     background:var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238b949e'/></svg>") no-repeat right 10px center;
@@ -37,144 +34,175 @@
   select:hover { border-color:var(--dim); }
   select:focus { outline:none; border-color:var(--accent);
     box-shadow:0 0 0 2px rgba(47,129,247,.3); }
+  select:disabled { opacity:.5; cursor:default; }
   option, optgroup { background:var(--panel); color:var(--fg); }
   input[type=checkbox], input[type=radio] { accent-color:var(--accent); }
   ::placeholder { color:var(--dim); }
-  input:focus, textarea:focus, input[type=text]:focus, input[type=password]:focus
-    { outline:none; border-color:var(--accent);
-      box-shadow:0 0 0 2px rgba(47,129,247,.3); }
+  input:focus, textarea:focus { outline:none; border-color:var(--accent);
+    box-shadow:0 0 0 2px rgba(47,129,247,.3); }
   button { padding:8px 16px; border:1px solid var(--border); border-radius:6px;
            background:#21262d; color:var(--fg); font:inherit; cursor:pointer; }
   button:hover { background:#30363d; }
   button.primary { background:var(--accent); border-color:var(--accent);
                    color:#fff; font-weight:600; }
   button.primary:hover { background:#1f6feb; }
-  button:disabled:hover { background:#21262d; }
   button.danger { color:var(--err); }
   button:disabled { opacity:.5; cursor:default; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button:disabled:hover { background:#21262d; }
+  button.small { padding:4px 10px; font-size:12px; }
+  a { color:var(--accent); }
+  code, pre { font-family:ui-monospace,monospace; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
+  .grow { flex:1; min-width:220px; }
+  .compact { min-width:150px; }
+  .spacer { flex:1; }
+  .top-gap { margin-top:12px; }
   .tabs { display:flex; gap:4px; margin-bottom:16px; }
   .tabs button { border-radius:8px 8px 0 0; border-bottom:none; }
   .tabs button.active { background:var(--panel); border-color:var(--border);
                          color:var(--fg); font-weight:600; }
+  .table-wrap { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
-  th { color:var(--dim); font-weight:600; }
+  th { color:var(--dim); font-weight:600; text-transform:uppercase; font-size:11px; }
   .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px;
           background:#21262d; border:1px solid var(--border); margin:1px 2px; }
-  .pill.tts { color:var(--ok); } .pill.stt { color:var(--accent); }
-  .pill.admin { color:var(--warn); }
+  .pill.tts { color:var(--ok); }
+  .pill.stt { color:var(--accent); }
+  .pill.admin, .pill.master { color:var(--warn); }
+  .status-ok { color:var(--ok); }
+  .status-err { color:var(--err); }
+  .status-warn { color:var(--warn); }
   .msg { margin-top:10px; padding:10px 12px; border-radius:6px; font-size:13px;
-         display:none; white-space:pre-wrap; word-break:break-all; }
+         display:none; white-space:pre-wrap; word-break:break-word; }
   .msg.ok { display:block; background:rgba(63,185,80,.12); color:var(--ok); }
   .msg.err { display:block; background:rgba(248,81,73,.12); color:var(--err); }
   .hidden { display:none !important; }
   .muted { color:var(--dim); font-size:12px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--dim); flex:none; }
+  .dot.on { background:var(--ok); }
+  .badge { font-size:11px; border:1px solid var(--border); border-radius:8px; padding:1px 7px; }
   .keycell { font-family:ui-monospace,monospace; font-size:12px; }
   .key-actions { display:flex; gap:6px; flex-wrap:wrap; }
-  button.small { padding:4px 10px; font-size:12px; }
+  .secret { font-family:ui-monospace,monospace; font-size:13px; background:var(--bg);
+            border:1px solid var(--ok); border-radius:6px; padding:10px; margin-top:10px;
+            word-break:break-all; display:none; }
+  .instructions { min-height:430px; font:12px/1.5 ui-monospace,monospace; white-space:pre; }
   .clipboard-helper { position:fixed; left:-10000px; top:0; opacity:0; }
-  #newKeyOut { font-family:ui-monospace,monospace; font-size:13px;
-               background:var(--bg); border:1px solid var(--ok); border-radius:6px;
-               padding:10px; margin-top:10px; word-break:break-all; display:none; }
+  .audio-player { width:100%; margin-top:14px; }
+  .download { display:inline-block; margin-top:8px; }
+  .engine { background:var(--bg); border:1px solid var(--border);
+            border-radius:8px; padding:12px 14px; }
+  .erow { margin-top:4px; }
+  .config-help { line-height:1.7; margin-top:8px; }
+  .inline-heading { font-size:13px; font-weight:400; text-transform:none; letter-spacing:0; }
 </style>
 </head>
 <body>
 <header>
-  <span class="dot" id="statusDot"></span>
+  <span class="dot" id="statusDot" aria-hidden="true"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted" style="font-size:11px;border:1px solid var(--border);border-radius:8px;padding:1px 7px" title="UI build version">v0.1.9</span>
-  <span style="flex:1"></span>
-  <button id="logoutBtn" class="hidden">Sign out</button>
+  <span class="muted badge" title="UI build version">v0.3.0</span>
+  <span class="spacer"></span>
+  <button id="logoutBtn" class="hidden" type="button">Sign out</button>
 </header>
 <main>
-
-  <!-- Login -->
   <section id="loginCard" class="card">
-    <h2>Sign in</h2>
-    <label for="apiKeyInput">API key</label>
+    <h2>Master key sign in</h2>
+    <p class="muted">Use the bootstrap master API key. Ordinary agent keys cannot manage keys or view engine status.</p>
+    <label for="apiKeyInput">Master API key</label>
     <input type="password" id="apiKeyInput" placeholder="omn_sk_..." autocomplete="off">
-    <div class="row" style="margin-top:12px">
-      <button class="primary" id="loginBtn">Connect</button>
+    <div class="row top-gap">
+      <button class="primary" id="loginBtn" type="button">Connect</button>
     </div>
-    <div class="msg" id="loginMsg"></div>
+    <div class="msg" id="loginMsg" role="status" aria-live="polite"></div>
   </section>
 
-  <!-- App -->
   <div id="app" class="hidden">
-    <nav class="tabs">
-      <button data-tab="keys" class="active">API Keys</button>
-      <button data-tab="tts">Text to Speech</button>
-      <button data-tab="status">Status</button>
+    <nav class="tabs" aria-label="ChimpFlow sections">
+      <button data-tab="keys" class="active" type="button">API Keys</button>
+      <button data-tab="tts" type="button">Text to Speech</button>
+      <button data-tab="status" type="button">Status</button>
     </nav>
 
     <section id="tab-keys" class="card">
-      <h2>Create key</h2>
+      <h2>Generate agent key</h2>
+      <p class="muted">Standard agent keys include both <strong>tts</strong> and <strong>stt</strong>. The secret is shown once.</p>
       <div class="row">
-        <input type="text" id="newKeyName" placeholder="Key name (e.g. phone-app)" style="flex:1">
-        <label style="margin:0"><input type="checkbox" id="scopeTts" checked> tts</label>
-        <label style="margin:0"><input type="checkbox" id="scopeStt"> stt</label>
-        <label style="margin:0"><input type="checkbox" id="scopeAdmin"> admin</label>
-        <button class="primary" id="createKeyBtn">Create</button>
+        <div class="grow">
+          <label for="newKeyName">Agent or application name</label>
+          <input type="text" id="newKeyName" placeholder="e.g. hive-bob" autocomplete="off">
+        </div>
+        <button class="primary" id="createKeyBtn" type="button">Generate key</button>
       </div>
-      <div id="newKeyOut" aria-label="New secret key, shown once"></div>
-      <div class="row" style="margin-top:8px">
+      <div id="newKeyOut" class="secret" aria-label="New secret key, shown once"></div>
+      <div class="row top-gap">
         <button id="copyNewKeyBtn" class="small hidden" type="button">Copy new secret key</button>
       </div>
-      <h2 style="margin-top:22px">Keys</h2>
-      <p class="muted">Full secret keys are shown once at creation.</p>
-      <table>
-        <thead><tr><th>Name</th><th>ID</th><th>Scopes</th><th>Uses</th><th>Status</th><th></th></tr></thead>
-        <tbody id="keysBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
-      </table>
+
+      <h3>Generated keys</h3>
+      <p class="muted">Revoke disables a key; Restore re-enables it; Delete permanently removes a revoked record. The bootstrap master key is protected.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>ID</th><th>Scopes</th><th>Uses</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="keysBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
       <div class="msg" id="keysMsg" role="status" aria-live="polite"></div>
+
+      <h3>Agent instructions</h3>
+      <p class="muted">Copy this document and give it to the agent. After generating a key, the document contains that one-time secret; otherwise it contains a placeholder.</p>
+      <label for="agentInstructions">ChimpFlow setup and API instructions</label>
+      <textarea id="agentInstructions" class="instructions" readonly spellcheck="false"></textarea>
+      <div class="row top-gap">
+        <button id="copyInstructionsBtn" type="button">Copy instructions</button>
+      </div>
+      <div class="msg" id="instructionsMsg" role="status" aria-live="polite"></div>
     </section>
 
     <section id="tab-tts" class="card hidden">
       <h2>Synthesize</h2>
-      <label for="ttsText">Text</label>
-      <textarea id="ttsText">Hello from the ChimpFlow voice service.</textarea>
-      <div class="row" style="margin-top:10px">
-        <select id="ttsVoice" style="flex:1">
-          <option>alba</option><option>anna</option><option>azelma</option>
-          <option>bill_boerst</option><option>caro_davy</option><option>charles</option>
-          <option>cosette</option><option>eponine</option><option>estelle</option>
-          <option>eve</option><option>fantine</option><option>george</option>
-          <option>giovanni</option><option>jane</option><option>javert</option>
-          <option>jean</option><option>juergen</option><option>lola</option>
-          <option>marius</option><option>mary</option><option>michael</option>
-          <option>paul</option><option>peter_yearsley</option><option>rafael</option>
-          <option>stuart_bell</option><option>vera</option>
-        </select>
-        <button class="primary" id="speakBtn">Speak</button>
+      <p class="long-form-note"><strong>Accepts long-form text.</strong> Paste a full chapter or document. ChimpFlow automatically splits paragraphs and sentences, synthesizes every part, and returns one complete audio file. Long chapters can take several minutes; autoplay starts when the file is ready.</p>
+      <label for="ttsText">Text or full chapter</label>
+      <textarea id="ttsText" spellcheck="true" placeholder="Paste a sentence, paragraph, or full chapter here…">Hello from the ChimpFlow voice service.</textarea>
+      <div class="row top-gap">
+        <div class="grow">
+          <label for="ttsVoice">Voice</label>
+          <select id="ttsVoice"><option value="alba">alba</option></select>
+        </div>
+        <div class="compact">
+          <label for="ttsFormat">Audio format</label>
+          <select id="ttsFormat">
+            <option value="mp3" selected>MP3 (recommended)</option>
+            <option value="wav">WAV (uncompressed)</option>
+          </select>
+        </div>
+        <button class="primary" id="speakBtn" type="button">Speak</button>
       </div>
-      <div id="ttsResult" style="margin-top:14px"></div>
-      <div class="msg" id="ttsMsg"></div>
+      <div id="ttsResult"></div>
+      <div class="msg" id="ttsMsg" role="status" aria-live="polite"></div>
     </section>
 
     <section id="tab-status" class="hidden">
       <div class="card">
         <h2>Service</h2>
         <div id="svcStatus" class="muted">checking…</div>
-        <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.7">
-          These endpoints are set in <code>~/.local/share/chimpflow/chimpflow.env</code> &mdash;
-          one env file shared by <code>chimpflow.service</code> and
-          <code>chimpflow-whisper.service</code> (systemd <code>EnvironmentFile=</code>;
-          created by install.sh with these defaults). Change
-          <code>CHIMPFLOW_LISTEN_HOST</code>, <code>CHIMPFLOW_LISTEN_PORT</code>,
-          <code>CHIMPFLOW_ENGINE_URL</code>, <code>CHIMPFLOW_STT_URL</code>, or
-          <code>CHIMPFLOW_STT_MODEL</code>, then
-          <code>systemctl --user restart chimpflow chimpflow-whisper</code>.
+        <div class="muted config-help">
+          Endpoints are configured in <code>~/.local/share/chimpflow/chimpflow.env</code>.
+          Change <code>CHIMPFLOW_LISTEN_HOST</code>, <code>CHIMPFLOW_LISTEN_PORT</code>,
+          <code>CHIMPFLOW_ENGINE_URL</code>, <code>CHIMPFLOW_STT_URL</code>,
+          <code>CHIMPFLOW_STT_MODEL</code>, or <code>CHIMPFLOW_FFMPEG</code>, then restart
+          <code>chimpflow</code> and <code>chimpflow-whisper</code>.
         </div>
       </div>
       <div class="card">
-        <h2>audio.cpp <span class="muted" style="font-size:13px;font-weight:400">— TTS engine · http://127.0.0.1:8080</span></h2>
-        <div id="ttsEngine">checking…</div>
+        <h2>audio.cpp <span class="muted inline-heading">— TTS engine · http://127.0.0.1:8080</span></h2>
+        <div id="ttsEngine" class="engine">checking…</div>
       </div>
       <div class="card">
-        <h2>whisper.cpp <span class="muted" style="font-size:13px;font-weight:400">— STT engine · http://127.0.0.1:8081</span></h2>
-        <div id="sttEngine">checking…</div>
+        <h2>whisper.cpp <span class="muted inline-heading">— STT engine · http://127.0.0.1:8081</span></h2>
+        <div id="sttEngine" class="engine">checking…</div>
       </div>
     </section>
   </div>
@@ -185,109 +213,126 @@
 const $ = id => document.getElementById(id);
 const store = {
   get key() { return localStorage.getItem("cf_key") || ""; },
-  set key(v) { v ? localStorage.setItem("cf_key", v) : localStorage.removeItem("cf_key"); }
+  set key(value) { value ? localStorage.setItem("cf_key", value) : localStorage.removeItem("cf_key"); }
 };
-
-async function api(path, opts = {}) {
-  const r = await fetch(path, {
-    ...opts,
-    headers: { "Authorization": "Bearer " + store.key,
-               "Content-Type": "application/json", ...(opts.headers || {}) }
-  });
-  if (!r.ok) throw new Error((await r.text()).slice(0, 300) || ("HTTP " + r.status));
-  return r;
-}
-function showMsg(el, text, ok) {
-  el.className = "msg " + (ok ? "ok" : "err");
-  el.textContent = text;
-}
-const esc = s => String(s).replace(/[&<>"']/g,
-  c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-
-// ---- Tabs ----
-document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
-  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x === b));
-  ["keys", "tts", "status"].forEach(t => $("tab-" + t).classList.toggle("hidden", t !== b.dataset.tab));
-  if (b.dataset.tab === "status") loadStatus();
-  if (b.dataset.tab === "keys") loadKeys();
-}));
-
-// ---- Auth ----
-async function tryConnect() {
-  const k = $("apiKeyInput").value.trim();
-  if (!k) return showMsg($("loginMsg"), "Enter your API key", false);
-  store.key = k;
-  try {
-    await api("/admin/keys");
-    enterApp();
-  } catch (e) {
-    store.key = "";
-    showMsg($("loginMsg"), e.message, false);
-  }
-}
-function enterApp() {
-  $("loginCard").classList.add("hidden");
-  $("app").classList.remove("hidden");
-  $("logoutBtn").classList.remove("hidden");
-  loadKeys(); ping(); loadVoices();
-}
-
-// Voices: prefer the live /v1/voices catalog; the hardcoded <option>s in
-// markup are the fallback if the endpoint is unavailable or unconfigured.
-async function loadVoices() {
-  try {
-    const j = await (await api("/v1/voices")).json();
-    const voices = Array.isArray(j.data) ? j.data.map(v => v.id).filter(Boolean) : [];
-    if (!voices.length) return;
-    $("ttsVoice").innerHTML = voices.map(v => "<option>" + esc(v) + "</option>").join("");
-  } catch { /* keep the built-in fallback list */ }
-}
-$("loginBtn").addEventListener("click", tryConnect);
-$("apiKeyInput").addEventListener("keydown", e => { if (e.key === "Enter") tryConnect(); });
-$("logoutBtn").addEventListener("click", () => { store.key = ""; location.reload(); });
-
-// ---- Status ----
-async function ping() {
-  try {
-    const r = await fetch("/healthz"); const j = await r.json();
-    $("statusDot").classList.add("on");
-    $("statusText").textContent = j.service + " · online";
-  } catch { $("statusText").textContent = "offline"; }
-}
-async function loadStatus() {
-  ping();
-  try {
-    const j = await (await fetch("/healthz")).json();
-    $("svcStatus").innerHTML = '<span style="color:var(--ok)">●</span> online — ' +
-      esc(j.service) + ' · 127.0.0.1:8090';
-  } catch (e) {
-    $("svcStatus").innerHTML = '<span style="color:var(--err)">●</span> offline';
-  }
-  try {
-    const j = await (await api("/admin/engine/models")).json();
-    const all = Array.isArray(j.data) ? j.data : [];
-    const tts = all.filter(m => (m.object || "model") === "model" || (m.task || "") === "tts");
-    $("ttsEngine").innerHTML =
-      '<div class="erow"><span style="color:var(--ok)">●</span> reachable — http://127.0.0.1:8080</div>' +
-      '<div class="erow">Model: ' + (tts.length ? tts.map(m => "<b>" + esc(m.id) + "</b>").join(", ") : "none loaded") + '</div>' +
-      (tts[0] && tts[0].path ? '<div class="erow muted" style="font-size:12px">' + esc(tts[0].path) + '</div>' : "");
-  } catch (e) {
-    $("ttsEngine").innerHTML = '<div class="erow"><span style="color:var(--err)">●</span> unreachable — ' + esc(e.message) + '</div>';
-  }
-  try {
-    const s = await (await api("/admin/engine/stt")).json();
-    $("sttEngine").innerHTML =
-      (s.reachable
-        ? '<div class="erow"><span style="color:var(--ok)">●</span> reachable — ' + esc(s.url) + '</div>' +
-          '<div class="erow">Model: <b>' + esc(s.model) + '</b></div>'
-        : '<div class="erow"><span style="color:var(--err)">●</span> unreachable — ' + esc(s.url) + '</div>');
-  } catch (e) {
-    $("sttEngine").innerHTML = '<div class="erow"><span style="color:var(--err)">●</span> ' + esc(e.message) + '</div>';
-  }
-}
-
-// ---- Clipboard (IDs vs one-time secrets) ----
 let newRawKey = "";
+let currentAudioUrl = "";
+
+function reportUnexpected(context, error) {
+  console.error(context, error);
+}
+
+async function api(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), path === "/v1/audio/speech" ? 30 * 60 * 1000 : 10000);
+  try {
+    const response = await fetch(path, {
+      ...options,
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { "Authorization": "Bearer " + store.key,
+                 "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let message = text || ("HTTP " + response.status);
+      try {
+        const body = JSON.parse(text);
+        if (body.error) message = body.error;
+      } catch { /* Non-JSON engine errors are already readable text. */ }
+      throw new Error(message);
+    }
+    return response;
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("Request timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function showMsg(element, text, ok) {
+  element.className = "msg " + (ok ? "ok" : "err");
+  element.textContent = text;
+}
+
+const esc = value => String(value).replace(/[&<>"']/g,
+  character => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'" :"&#39;" }[character]));
+
+function agentInstructions() {
+  const key = newRawKey || "PASTE_THE_GENERATED_KEY_HERE";
+  return `# ChimpFlow agent instructions
+
+ChimpFlow provides fully local text-to-speech (TTS) and speech-to-text (STT).
+Base URL: ${window.location.origin}
+API key: ${key}
+
+Store the key as CHIMPFLOW_KEY. Do not commit it, log it, or send it to a cloud
+service. This key is for audio API access only, not key administration.
+
+## 1. Authenticate and discover
+
+Every API request needs:
+  Authorization: Bearer $CHIMPFLOW_KEY
+
+Check the service and discover current model/voice IDs:
+  curl -fsS ${window.location.origin}/healthz
+  curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/models
+  curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/voices
+
+## 2. Text to speech — PREFER MP3
+
+Always request MP3 unless your consumer specifically requires uncompressed WAV.
+MP3 is much smaller and is the recommended format for agent voice output.
+
+  curl -fsS -X POST ${window.location.origin}/v1/audio/speech \\
+    -H "Authorization: Bearer $CHIMPFLOW_KEY" \\
+    -H "Content-Type: application/json" \\
+    -d '{"model":"pocket-tts","input":"Hello from my agent.","voice":"alba","response_format":"mp3"}' \\
+    -o speech.mp3
+
+Use model and voice IDs returned by discovery rather than assuming the examples.
+MP3 returns Content-Type audio/mpeg. For WAV, set response_format to wav and
+save as speech.wav; the response Content-Type is audio/wav.
+
+Long-form chapters use the SAME endpoint. ChimpFlow automatically splits
+paragraphs and sentences, joins every synthesized chunk, and returns ONE complete
+WAV or MP3. X-ChimpFlow-Text-Chunks reports how many chunks were joined.
+
+For immediate or incremental playback, split sentences yourself and make normal
+foreground requests. For one whole-chapter audio file, send the entire chapter
+and **run long-form synthesis as a background process**. Its automatic completion
+trigger tells you when the file is ready; do not poll a job endpoint. Use a
+generous HTTP timeout because the response arrives after all synthesis/encoding.
+Long-form limits: 131072 input bytes, 512 chunks, 256 MiB WAV, 64 MiB MP3.
+
+## 3. Speech to text
+
+  curl -fsS -X POST ${window.location.origin}/v1/audio/transcriptions \\
+    -H "Authorization: Bearer $CHIMPFLOW_KEY" \\
+    -F file=@speech.mp3 \\
+    -F model=whisper
+
+The JSON response contains the transcription in its text field. WAV, MP3, and
+other formats supported by whisper.cpp are accepted. Keep uploads below 24 MB.
+
+## 4. Error handling
+
+400: fix the request or response_format (only mp3 and wav are supported).
+401: the key is missing, revoked, expired, or invalid; ask the operator.
+403: the key lacks the required tts or stt scope.
+413: the long-form input exceeds the documented byte/chunk limits.
+502: a local engine, WAV joiner, or MP3 encoder failed; tell the operator, do not retry-loop.
+503: the voice catalog is not configured.
+
+All errors are JSON: {"error":"human-readable message"}.
+`;
+}
+
+function renderInstructions() {
+  $("agentInstructions").value = agentInstructions();
+}
+
 function legacyCopy(text) {
   if (typeof document.execCommand !== "function") return false;
   const area = document.createElement("textarea");
@@ -304,10 +349,11 @@ function legacyCopy(text) {
     area.remove();
   }
 }
-async function copyText(text, label) {
+
+async function copyText(text, messageElement, label) {
   if (!text) {
-    showMsg($("keysMsg"), "Nothing to copy", false);
-    return false;
+    showMsg(messageElement, "Nothing to copy", false);
+    return;
   }
   let copied = false;
   let clipboardError = "";
@@ -315,108 +361,284 @@ async function copyText(text, label) {
     try {
       await navigator.clipboard.writeText(text);
       copied = true;
-    } catch (e) {
-      clipboardError = e.message;
+    } catch (error) {
+      clipboardError = error.message;
     }
   }
   try {
     if (!copied) copied = legacyCopy(text);
     if (!copied) throw new Error(clipboardError || "Browser denied clipboard access");
-    showMsg($("keysMsg"), label + " copied to clipboard", true);
-    return true;
-  } catch (e) {
-    showMsg($("keysMsg"), "Automatic copy failed: " + e.message +
+    showMsg(messageElement, label + " copied to clipboard", true);
+  } catch (error) {
+    showMsg(messageElement, "Automatic copy failed: " + error.message +
             ". Select the text and copy it manually.", false);
-    return false;
   }
 }
-$("copyNewKeyBtn").addEventListener("click", async () => {
-  await copyText(newRawKey, "New secret key");
-});
 
-// ---- Keys ----
+async function ping() {
+  try {
+    const response = await fetch("/healthz", { cache:"no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const health = await response.json();
+    $("statusDot").classList.add("on");
+    $("statusText").textContent = health.service + " · online";
+    return health;
+  } catch (error) {
+    $("statusDot").classList.remove("on");
+    $("statusText").textContent = "offline";
+    throw error;
+  }
+}
+
+async function tryConnect() {
+  const key = $("apiKeyInput").value.trim();
+  if (!key) {
+    showMsg($("loginMsg"), "Enter the master API key", false);
+    return;
+  }
+  store.key = key;
+  $("loginBtn").disabled = true;
+  try {
+    await api("/admin/keys");
+    $("loginCard").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    $("logoutBtn").classList.remove("hidden");
+    await Promise.all([loadKeys(), loadVoices()]);
+    try {
+      await ping();
+    } catch (error) {
+      reportUnexpected("Health check failed", error);
+    }
+  } catch (error) {
+    store.key = "";
+    showMsg($("loginMsg"), "Master key required: " + error.message, false);
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+}
+
+async function loadVoices() {
+  try {
+    const response = await api("/v1/voices");
+    const body = await response.json();
+    const voices = Array.isArray(body.data) ? body.data.map(voice => voice.id).filter(Boolean) : [];
+    if (!voices.length) return;
+    $("ttsVoice").replaceChildren(...voices.map(voice => {
+      const option = document.createElement("option");
+      option.value = voice;
+      option.textContent = voice;
+      return option;
+    }));
+  } catch (error) {
+    reportUnexpected("Voice catalog unavailable; retaining fallback", error);
+  }
+}
+
 async function loadKeys() {
   try {
-    const r = await api("/admin/keys");
-    const keys = await r.json();
-    $("keysBody").innerHTML = keys.map(k => {
-      const status = k.revoked ? '<span style="color:var(--err)">revoked</span>'
-                    : k.expired  ? '<span style="color:var(--warn)">expired</span>'
-                    : '<span style="color:var(--ok)">active</span>';
-      const scopes = k.scopes.map(s => `<span class="pill ${esc(s)}">${esc(s)}</span>`).join("");
-      const revoke = k.revoked
-        ? `<button class="small danger" data-delete="${esc(k.id)}" aria-label="Permanently delete revoked key ${esc(k.id)}">Delete</button>`
-        : `<button class="small danger" data-revoke="${esc(k.id)}">Revoke</button>`;
-      return `<tr><td>${esc(k.name)}</td><td class="keycell">${esc(k.id)}</td>` +
-             `<td>${scopes}</td><td>${k.useCount ?? 0}</td><td>${status}</td>` +
-             `<td><div class="key-actions">${revoke}</div></td></tr>`;
+    const response = await api("/admin/keys");
+    const keys = await response.json();
+    if (!Array.isArray(keys)) throw new Error("Invalid key-list response");
+    $("keysBody").innerHTML = keys.map(key => {
+      const status = key.revoked ? '<span class="status-err">revoked</span>'
+                   : key.expired ? '<span class="status-warn">expired</span>'
+                   : '<span class="status-ok">active</span>';
+      const master = key.master ? ' <span class="pill master">master</span>' : "";
+      const scopes = key.scopes.map(scope => `<span class="pill ${esc(scope)}">${esc(scope)}</span>`).join("");
+      let actions = '<span class="muted">protected</span>';
+      if (!key.master) {
+        actions = key.revoked
+          ? `<button class="small" data-restore="${esc(key.id)}">Restore</button>` +
+            `<button class="small danger" data-delete="${esc(key.id)}" aria-label="Permanently delete revoked key ${esc(key.id)}">Delete</button>`
+          : `<button class="small danger" data-revoke="${esc(key.id)}">Revoke</button>`;
+      }
+      return `<tr><td>${esc(key.name)}${master}</td><td class="keycell">${esc(key.id)}</td>` +
+             `<td>${scopes}</td><td>${Number(key.useCount) || 0}</td><td>${status}</td>` +
+             `<td><div class="key-actions">${actions}</div></td></tr>`;
     }).join("") || '<tr><td colspan="6" class="muted">No keys yet</td></tr>';
-    document.querySelectorAll("[data-delete]").forEach(b =>
-      b.addEventListener("click", () => permanentlyDeleteKey(b.dataset.delete)));
-    document.querySelectorAll("[data-revoke]").forEach(b =>
-      b.addEventListener("click", () => revokeKey(b.dataset.revoke)));
-  } catch (e) { showMsg($("keysMsg"), e.message, false); }
+    document.querySelectorAll("[data-delete]").forEach(button =>
+      button.addEventListener("click", () => permanentlyDeleteKey(button.dataset.delete)
+        .catch(error => reportUnexpected("Delete failed", error))));
+    document.querySelectorAll("[data-revoke]").forEach(button =>
+      button.addEventListener("click", () => revokeKey(button.dataset.revoke)
+        .catch(error => reportUnexpected("Revoke failed", error))));
+    document.querySelectorAll("[data-restore]").forEach(button =>
+      button.addEventListener("click", () => restoreKey(button.dataset.restore)
+        .catch(error => reportUnexpected("Restore failed", error))));
+  } catch (error) {
+    showMsg($("keysMsg"), error.message, false);
+  }
 }
-$("createKeyBtn").addEventListener("click", async () => {
-  const scopes = [];
-  if ($("scopeTts").checked) scopes.push("tts");
-  if ($("scopeStt").checked) scopes.push("stt");
-  if ($("scopeAdmin").checked) scopes.push("admin");
+
+async function createKey() {
   const name = $("newKeyName").value.trim();
-  if (!name) return showMsg($("keysMsg"), "Name required", false);
-  if (!scopes.length) return showMsg($("keysMsg"), "Pick at least one scope", false);
+  if (!name) {
+    showMsg($("keysMsg"), "Agent or application name required", false);
+    return;
+  }
+  $("createKeyBtn").disabled = true;
   try {
-    const r = await api("/admin/keys", { method: "POST",
-      body: JSON.stringify({ name, scopes }) });
-    const j = await r.json();
-    const out = $("newKeyOut");
-    out.style.display = "block";
-    out.textContent = j.rawKey;
-    newRawKey = j.rawKey;
+    const response = await api("/admin/keys", { method:"POST",
+      body:JSON.stringify({ name, scopes:["tts", "stt"] }) });
+    const created = await response.json();
+    newRawKey = created.rawKey;
+    $("newKeyOut").style.display = "block";
+    $("newKeyOut").textContent = newRawKey;
     $("copyNewKeyBtn").classList.remove("hidden");
-    showMsg($("keysMsg"), "Key created — copy the full secret now; it will not be shown again.", true);
-    $("newKeyName").value = ""; await loadKeys();
-  } catch (e) { showMsg($("keysMsg"), e.message, false); }
-});
+    renderInstructions();
+    showMsg($("keysMsg"), "Key created with tts + stt. Copy the secret and instructions now; the secret will not be shown again.", true);
+    $("newKeyName").value = "";
+    await loadKeys();
+  } catch (error) {
+    showMsg($("keysMsg"), error.message, false);
+  } finally {
+    $("createKeyBtn").disabled = false;
+  }
+}
+
 async function revokeKey(id) {
-  if (!confirm("Revoke key " + id + "?")) return;
+  if (!confirm("Revoke key " + id + "? It will stop working until restored.")) return;
   try {
-    await api("/admin/keys/" + encodeURIComponent(id), { method: "DELETE" });
-    showMsg($("keysMsg"), "Revoked " + id, true); await loadKeys();
-  } catch (e) { showMsg($("keysMsg"), e.message, false); }
+    await api("/admin/keys/" + encodeURIComponent(id), { method:"DELETE" });
+    showMsg($("keysMsg"), "Revoked " + id, true);
+    await loadKeys();
+  } catch (error) {
+    showMsg($("keysMsg"), error.message, false);
+  }
+}
+
+async function restoreKey(id) {
+  try {
+    await api("/admin/keys/" + encodeURIComponent(id) + "/restore", { method:"POST" });
+    showMsg($("keysMsg"), "Restored " + id, true);
+    await loadKeys();
+  } catch (error) {
+    showMsg($("keysMsg"), error.message, false);
+  }
 }
 
 async function permanentlyDeleteKey(id) {
   if (!confirm("Permanently delete revoked key " + id + "? This cannot be undone.")) return;
   try {
-    await api("/admin/keys/" + encodeURIComponent(id) + "/permanent", { method: "DELETE" });
+    await api("/admin/keys/" + encodeURIComponent(id) + "/permanent", { method:"DELETE" });
     showMsg($("keysMsg"), "Permanently deleted " + id, true);
     await loadKeys();
-  } catch (e) { showMsg($("keysMsg"), e.message, false); }
+  } catch (error) {
+    showMsg($("keysMsg"), error.message, false);
+  }
 }
 
-// ---- TTS ----
-$("speakBtn").addEventListener("click", async () => {
-  const btn = $("speakBtn"); btn.disabled = true;
-  showMsg($("ttsMsg"), "Synthesizing…", true);
+async function loadStatus() {
   try {
-    const r = await api("/v1/audio/speech", { method: "POST", body: JSON.stringify({
-      model: "pocket-tts", input: $("ttsText").value,
-      voice: $("ttsVoice").value, response_format: "wav" }) });
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    $("ttsResult").innerHTML = "";
-    const audio = document.createElement("audio");
-    audio.controls = true; audio.src = url; audio.style.width = "100%";
-    $("ttsResult").appendChild(audio);
-    audio.play().catch(() => {});
-    showMsg($("ttsMsg"), "OK (" + Math.round(blob.size / 1024) + " KB)", true);
-  } catch (e) { showMsg($("ttsMsg"), e.message, false); }
-  btn.disabled = false;
-});
+    const health = await ping();
+    $("svcStatus").innerHTML = '<span class="status-ok">●</span> online — ' +
+      esc(health.service) + " · " + esc(window.location.host);
+  } catch (error) {
+    $("svcStatus").innerHTML = '<span class="status-err">●</span> offline';
+  }
+  try {
+    const response = await api("/admin/engine/models");
+    const body = await response.json();
+    const models = Array.isArray(body.data) ? body.data : [];
+    $("ttsEngine").innerHTML =
+      '<div class="erow"><span class="status-ok">●</span> reachable — http://127.0.0.1:8080</div>' +
+      '<div class="erow">Model: ' + (models.length ? models.map(model => "<strong>" + esc(model.id) + "</strong>").join(", ") : "none loaded") + '</div>' +
+      (models[0]?.path ? '<div class="erow muted">' + esc(models[0].path) + '</div>' : "");
+  } catch (error) {
+    $("ttsEngine").innerHTML = '<div class="erow"><span class="status-err">●</span> unreachable — ' + esc(error.message) + '</div>';
+  }
+  try {
+    const response = await api("/admin/engine/stt");
+    const status = await response.json();
+    $("sttEngine").innerHTML = status.reachable
+      ? '<div class="erow"><span class="status-ok">●</span> reachable — ' + esc(status.url) + '</div>' +
+        '<div class="erow">Model: <strong>' + esc(status.model) + '</strong></div>'
+      : '<div class="erow"><span class="status-err">●</span> unreachable — ' + esc(status.url) + '</div>';
+  } catch (error) {
+    $("sttEngine").innerHTML = '<div class="erow"><span class="status-err">●</span> ' + esc(error.message) + '</div>';
+  }
+}
 
-// ---- Boot ----
-if (store.key) { $("apiKeyInput").value = store.key; tryConnect(); } else ping();
+async function synthesize() {
+  const button = $("speakBtn");
+  const format = $("ttsFormat").value;
+  const longForm = $("ttsText").value.length > 1200;
+  button.disabled = true;
+  showMsg($("ttsMsg"), longForm
+    ? "Synthesizing long-form " + format.toUpperCase() + " — ChimpFlow is splitting and joining the audio; this can take several minutes…"
+    : "Synthesizing " + format.toUpperCase() + "…", true);
+  try {
+    const response = await api("/v1/audio/speech", { method:"POST", body:JSON.stringify({
+      model:"pocket-tts", input:$("ttsText").value,
+      voice:$("ttsVoice").value, response_format:format }) });
+    const chunkCount = response.headers.get("X-ChimpFlow-Text-Chunks");
+    const blob = await response.blob();
+    if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+    currentAudioUrl = URL.createObjectURL(blob);
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.src = currentAudioUrl;
+    audio.className = "audio-player";
+    const download = document.createElement("a");
+    download.href = currentAudioUrl;
+    download.download = "chimpflow-speech." + format;
+    download.className = "download";
+    download.textContent = "Download " + format.toUpperCase();
+    $("ttsResult").replaceChildren(audio, download);
+    try {
+      await audio.play();
+      showMsg($("ttsMsg"), format.toUpperCase() + " playing (" + Math.round(blob.size / 1024) + " KB" +
+        (chunkCount ? ", " + chunkCount + " text chunks joined" : "") + ")", true);
+    } catch (error) {
+      reportUnexpected("Autoplay blocked", error);
+      showMsg($("ttsMsg"), format.toUpperCase() + " ready — press Play (" + Math.round(blob.size / 1024) + " KB" +
+        (chunkCount ? ", " + chunkCount + " text chunks joined" : "") + ")", true);
+    }
+  } catch (error) {
+    showMsg($("ttsMsg"), error.message, false);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelectorAll(".tabs button").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach(tab => tab.classList.toggle("active", tab === button));
+  ["keys", "tts", "status"].forEach(name => $("tab-" + name).classList.toggle("hidden", name !== button.dataset.tab));
+  if (button.dataset.tab === "status") loadStatus().catch(error => reportUnexpected("Status load failed", error));
+  if (button.dataset.tab === "keys") loadKeys().catch(error => reportUnexpected("Key load failed", error));
+}));
+$("loginBtn").addEventListener("click", () => tryConnect().catch(error => reportUnexpected("Sign-in failed", error)));
+$("apiKeyInput").addEventListener("keydown", event => {
+  if (event.key === "Enter") tryConnect().catch(error => reportUnexpected("Sign-in failed", error));
+});
+$("logoutBtn").addEventListener("click", () => {
+  store.key = "";
+  newRawKey = "";
+  if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+  location.reload();
+});
+$("createKeyBtn").addEventListener("click", () => createKey().catch(error => reportUnexpected("Key creation failed", error)));
+$("copyNewKeyBtn").addEventListener("click", () => copyText(newRawKey, $("keysMsg"), "New secret key")
+  .catch(error => reportUnexpected("Key copy failed", error)));
+$("copyInstructionsBtn").addEventListener("click", () => copyText(agentInstructions(), $("instructionsMsg"), "Agent instructions")
+  .catch(error => reportUnexpected("Instruction copy failed", error)));
+$("speakBtn").addEventListener("click", () => synthesize().catch(error => reportUnexpected("Speech failed", error)));
+window.addEventListener("pagehide", () => { if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl); });
+
+async function boot() {
+  renderInstructions();
+  if (store.key) {
+    $("apiKeyInput").value = store.key;
+    await tryConnect();
+  } else {
+    try {
+      await ping();
+    } catch (error) {
+      reportUnexpected("Initial health check failed", error);
+    }
+  }
+}
+boot().catch(error => reportUnexpected("WebUI boot failed", error));
 </script>
 </body>
 </html>

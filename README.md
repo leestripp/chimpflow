@@ -16,18 +16,20 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
 
 ## Features
 
-- **OpenAI-compatible TTS**: `POST /v1/audio/speech` (model, input, voice, response_format)
+- **OpenAI-compatible TTS**: `POST /v1/audio/speech` (model, input, voice), with real **MP3 (recommended)** or WAV output and automatic whole-chapter splitting/joining
 - **OpenAI-compatible STT**: `POST /v1/audio/transcriptions` (multipart `file` → `{"text":"..."}`, powered by local whisper.cpp)
 - **Fully local**: all inference on your hardware — no external API calls, works offline
-- **Scoped API keys**: `tts` / `stt` / `admin` scopes, hashed at rest in sqlite,
-  per-key use counts, revocation, expiration support
-- **WebUI** at `/` — key management, TTS test bench (26 voices), Status tab with
+- **Scoped API keys**: standard agent keys have `tts` and/or `stt`; the protected
+  bootstrap master also has `admin`. Keys are hashed at rest in sqlite, with per-key
+  use counts, revoke/restore/permanent-delete lifecycle, and expiration support
+- **WebUI** at `/` — master-key-protected key management, copyable agent instructions,
+  MP3/WAV TTS test bench (26 voices), Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.1.9`) so a stale cached page is self-evident
+  badge (currently `v0.3.0`) so a stale cached page is self-evident
 - **One-time secret copying** — the generate-key area has **Copy new secret
   key** for the newly created `rawKey`; existing rows have no Copy ID action
-- **Bootstrap admin key** printed once on first run
+- **Bootstrap master key** printed once on first run and protected from revoke/delete
 
 ## Tests
 
@@ -37,9 +39,12 @@ ctest --test-dir build -L unit                      # unit only (always runs)
 ctest --test-dir build -L integration               # needs the live service (SKIPs if down)
 ```
 
-Unit tests cover the demo's WAV/multipart helpers (`tests/test_wav.cpp`,
-zero-dependency harness). Integration (`tests/integration.sh`) smoke-tests a
-running service: auth gates (401/403), TTS, STT round trip, /v1/models, /skill.
+Unit tests cover the demo's WAV/multipart helpers, long-form text chunking,
+WAV joining, and real WAV→MP3 encoding (`tests/test_wav.cpp`,
+`tests/test_text_chunk.cpp`, `tests/test_audio_format.cpp`, zero-dependency harness).
+Integration (`tests/integration.sh`) smoke-tests a running service: auth gates
+(401/403), WAV and decoded MP3 TTS, STT round trip, /v1/models, /skill, and the
+complete key revoke/restore/permanent-delete lifecycle.
 
 ## Demo
 
@@ -49,9 +54,9 @@ that round-trips your voice through the service — STT then TTS. See
 
 ## Build
 
-Requires: GCC 13+ (C++23), CMake 3.20+, OpenSSL, SQLite3. OmniNet is expected at
-`/projects/Websites/OmniNet` (override with `-DOMNINET_DIR=...`); if its
-prebuilt `libOmniNet.a` is missing, OmniNet is built from source automatically.
+Requires: GCC 13+ (C++23), CMake 3.20+, OpenSSL, SQLite3, and ffmpeg with
+`libmp3lame`. CMake FetchContent obtains OmniNet from `leestripp/omninet.git`
+at `main`; never patch the fetched checkout locally.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -101,11 +106,12 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 | `GET /v1/voices` | any valid key | voice catalog (`CHIMPFLOW_VOICES_DIR` `*.wav` basenames; 503 if unconfigured) |
 | `POST /v1/audio/transcriptions` | `stt` scope | STT, multipart `file` forwarded to whisper.cpp (`{"text":"..."}`) |
 | `GET /skill/` + `/skill/manifest.json` | none | agent guide: how an AI agent should use this API (markdown + JSON twin) |
-| `POST /v1/audio/speech` | `tts` scope | TTS, body forwarded to the engine (OpenAI shape) |
+| `POST /v1/audio/speech` | `tts` scope | TTS with `response_format: "mp3"` (recommended) or `"wav"`; MP3 encoded locally by ffmpeg |
 | `GET /admin/keys` | `admin` | list keys (id, name, scopes, useCount, status) |
-| `POST /admin/keys` | `admin` | create key `{"name":"...","scopes":["tts"]}` → returns `rawKey` once |
-| `DELETE /admin/keys/<id>` | `admin` | revoke a key |
-| `DELETE /admin/keys/<id>/permanent` | `admin` | permanently delete a revoked key (409 if active, 404 if missing) |
+| `POST /admin/keys` | `admin` | create an agent key with `tts`/`stt` scopes only (default both) → returns `rawKey` once |
+| `DELETE /admin/keys/<id>` | `admin` | revoke an agent key; bootstrap master returns 409 |
+| `POST /admin/keys/<id>/restore` | `admin` | restore a revoked key |
+| `DELETE /admin/keys/<id>/permanent` | `admin` | permanently delete a revoked key (409 if active/master, 404 if missing) |
 | `GET /admin/engine/models` | `admin` | engine's model list (proxied) |
 | `GET /admin/engine/stt` | `admin` | whisper.cpp reachability + served model (`{"reachable":false}`, never 502) |
 | `GET /` | none | WebUI |
@@ -116,9 +122,24 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 curl -X POST http://127.0.0.1:8090/v1/audio/speech \
   -H "Authorization: Bearer omn_sk_..." \
   -H "Content-Type: application/json" \
-  -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"wav"}' \
-  -o out.wav
+  -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"mp3"}' \
+  -o out.mp3
 ```
+
+### Long-form chapters
+
+The same speech endpoint automatically splits long text into paragraph/sentence
+chunks (about 1200 bytes), joins all synthesized PCM, and returns one complete
+WAV or MP3. There is no separate job endpoint. `X-ChimpFlow-Text-Chunks` reports
+the chunk count. Input is limited to 131072 bytes and 512 chunks; joined WAV is
+capped at 256 MiB and MP3 at 64 MiB.
+
+For immediate incremental playback, clients should split their own sentences
+and make foreground requests. For a whole chapter returned as one file, agents
+should **run long-form synthesis as a background process** and use the tool's
+automatic completion trigger instead of polling. The HTTP response arrives only
+after synthesis and encoding complete, so long-form clients need generous
+timeouts. Existing short WAV/MP3 clients require no changes.
 
 ## Security notes
 
@@ -126,14 +147,17 @@ curl -X POST http://127.0.0.1:8090/v1/audio/speech \
 - Keys are stored as hashes; the raw key is returned exactly once at creation.
   Row IDs are only identifiers and cannot authenticate. Existing raw secrets
   cannot be recovered; create a replacement key if the original was lost.
-  **Revoke** disables a key but keeps its record; **Delete** permanently removes
-  a revoked record after confirmation. Active keys cannot be permanently deleted.
+  **Revoke** disables a key but keeps its record; **Restore** re-enables it;
+  **Delete** permanently removes a revoked record after confirmation. Active keys
+  cannot be permanently deleted. The bootstrap master cannot be revoked or deleted.
 - The WebUI keeps the admin key in `localStorage` (localhost-only trade-off).
 
 ## Layout
 
 ```
-src/main.cpp    service: auth, routes, engine proxy, bootstrap
+src/main.cpp       service: auth, routes, engine proxy, bootstrap
+src/audio_format.* local WAV joining and WAV→MP3 conversion via ffmpeg
+src/text_chunk.*   bounded paragraph/sentence/UTF-8 long-form splitting
 web/index.html  self-contained admin SPA (no build step)
 demo/           ChimpEcho hold-to-talk demo client (standalone CMake)
 tests/          unit harness + live-service integration suite
@@ -141,7 +165,7 @@ docs/design.md  architecture, API design, invariants
 docs/deploy.md  installation, units, updating, troubleshooting
 resources/      static assets (banner, etc.)
 data/           runtime state (sqlite db) — created on first run, gitignored
-CMakeLists.txt  links OmniNet (prebuilt or from source)
+CMakeLists.txt     C++23 build; OmniNet via FetchContent
 ```
 
 Design details live in [docs/design.md](docs/design.md); deployment (what runs where, first install, units, updating, troubleshooting) in [docs/deploy.md](docs/deploy.md).

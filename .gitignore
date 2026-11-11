@@ -13,6 +13,7 @@ nohup.out
 # test artifacts
 *.wav
 !test/fixtures/*.wav
+*.mp3
 
 # agent runtime
 .daedalus/
