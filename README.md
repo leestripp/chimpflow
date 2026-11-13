@@ -26,7 +26,7 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
   model-aware MP3/WAV TTS test bench, Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.3.1`) so a stale cached page is self-evident
+  badge (currently `v0.3.2`) so a stale cached page is self-evident
 - **One-time secret copying** — the generate-key area has **Copy new secret
   key** for the newly created `rawKey`; existing rows have no Copy ID action
 - **Bootstrap master key** printed once on first run and protected from revoke/delete
@@ -125,6 +125,15 @@ curl -X POST http://127.0.0.1:8090/v1/audio/speech \
   -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"mp3"}' \
   -o out.mp3
 ```
+
+### Default model and voice compatibility
+
+Requests that omit `model` (or send an empty model) use **`kokoro-82m`**.
+Explicit model ids are honored. Before synthesis, ChimpFlow checks the requested
+voice against that model's catalog; an unknown voice is omitted so the engine
+uses the model's configured default rather than failing an older application.
+`X-ChimpFlow-Model` identifies the effective model, and
+`X-ChimpFlow-Voice-Fallback` records the URL-encoded replaced voice id when fallback occurs.
 
 ### Long-form chapters
 

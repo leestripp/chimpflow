@@ -23,9 +23,11 @@ mp3=$(mktemp /tmp/chimpflow-it-XXXX.mp3)
 long_mp3=$(mktemp /tmp/chimpflow-it-long-XXXX.mp3)
 long_headers=$(mktemp /tmp/chimpflow-it-headers-XXXX)
 long_json=$(mktemp /tmp/chimpflow-it-long-XXXX.json)
+default_wav=$(mktemp /tmp/chimpflow-it-default-XXXX.wav)
+default_headers=$(mktemp /tmp/chimpflow-it-default-headers-XXXX)
 id=""
 cleanup() {
-  rm -f "$wav" "$mp3" "$long_mp3" "$long_headers" "$long_json"
+  rm -f "$wav" "$mp3" "$long_mp3" "$long_headers" "$long_json" "$default_wav" "$default_headers"
   if [ -n "$id" ]; then
     curl -s -X DELETE "${AUTH[@]}" "$BASE/admin/keys/$id" >/dev/null 2>&1 || true
     curl -s -X DELETE "${AUTH[@]}" "$BASE/admin/keys/$id/permanent" >/dev/null 2>&1 || true
@@ -41,6 +43,12 @@ expect "model-scoped voices -> 200" 200 "$(curl -s -o /dev/null -w '%{http_code}
 if curl -fsS "${AUTH[@]}" "$BASE/v1/voices?model=pocket-tts" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("object") == "list" and d.get("data") and all(v.get("id") for v in d["data"])' 2>/dev/null
 then ok "model-scoped voices use the ChimpFlow list shape"; else bad "model-scoped voice response malformed or empty"; fi
 expect "legacy unscoped voices -> 200" 200 "$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "$BASE/v1/voices")"
+expect "omitted model + unknown voice -> 200" 200 "$(curl -s -D "$default_headers" -o "$default_wav" -w '%{http_code}' -X POST "$BASE/v1/audio/speech" "${AUTH[@]}" -H 'Content-Type: application/json' -d '{"input":"default model and voice fallback test","voice":"pixel_voice","response_format":"wav"}')"
+default_model=$(awk '/^X-ChimpFlow-Model:/ {gsub("\r", "", $2); print $2}' "$default_headers")
+fallback_voice=$(awk '/^X-ChimpFlow-Voice-Fallback:/ {gsub("\r", "", $2); print $2}' "$default_headers")
+expect "omitted model defaults to Kokoro" "kokoro-82m" "$default_model"
+expect "unknown voice uses fallback header" "pixel_voice" "$fallback_voice"
+if head -c 4 "$default_wav" | grep -q RIFF; then ok "default/fallback body is WAV"; else bad "default/fallback body is not RIFF"; fi
 expect "unsupported audio format -> 400" 400 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/v1/audio/speech" "${AUTH[@]}" -H 'Content-Type: application/json' -d '{"model":"pocket-tts","input":"bad format","voice":"alba","response_format":"flac"}')"
 
 code=$(curl -s -o "$wav" -w '%{http_code}' -X POST "$BASE/v1/audio/speech" "${AUTH[@]}" \
@@ -137,7 +145,7 @@ page=$(curl -fsS "$BASE/")
 for needle in 'data-delete' 'data-restore' 'navigator.clipboard.writeText' 'document.execCommand("copy")' \
               'Copy new secret key' 'Copy instructions' 'PREFER MP3' 'MP3 (recommended)' '/permanent' \
               'Accepts long-form text' 'run long-form synthesis as a background process' \
-              'id="ttsModel"' 'loadModels()' '/v1/voices?model=' 'model, input:' 'v0.3.1'; do
+              'id="ttsModel"' 'loadModels()' '/v1/voices?model=' 'model, input:' 'v0.3.2'; do
   if printf '%s' "$page" | grep -qF "$needle"; then ok "WebUI control: $needle"
   else bad "WebUI control missing: $needle"; fi
 done

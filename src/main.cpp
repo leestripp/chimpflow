@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <system_error>
 #include <vector>
 
@@ -36,6 +37,7 @@ constexpr std::string_view kSttBase = "http://127.0.0.1:8081";
 // model-listing endpoint, so the status route reports this value — the
 // whisper unit reads the same CHIMPFLOW_STT_MODEL var (single source).
 constexpr std::string_view kSttModel = "ggml-tiny.en";
+constexpr std::string_view kDefaultTtsModel = "kokoro-82m";
 constexpr std::string_view kFfmpeg = "/usr/bin/ffmpeg";
 constexpr std::string_view kMasterKeyName = "chimpflow-bootstrap-admin";
 constexpr std::size_t kMaxLongFormBytes = 128 * 1024;
@@ -83,12 +85,31 @@ bool restoreKey(DB::Database& db, std::string_view keyId) {
     return stmt.step();
 }
 
+// A missing catalog must not make synthesis unavailable: in that case the
+// caller forwards the original voice and lets the engine report any error.
+std::optional<std::vector<std::string>> engineVoiceIds(
+    std::string_view engineBase, std::string_view modelId) {
+    ClientRequest fwd;
+    fwd.method("GET").url(std::string(engineBase) + "/v1/audio/voices?model=" + Utils::urlEncode(modelId));
+    auto r = Client::get_instance().send_blocking(fwd);
+    if (!r || r->status() != StatusCode::OK) return std::nullopt;
+    const auto body = nlohmann::json::parse(r->bodyAsStringView(), nullptr, false);
+    if (body.is_discarded() || !body.contains("voices") || !body["voices"].is_array())
+        return std::nullopt;
+    std::vector<std::string> ids;
+    for (const auto& voice : body["voices"]) {
+        if (!voice.is_string()) return std::nullopt;
+        ids.push_back(voice.get<std::string>());
+    }
+    return ids;
+}
+
 // Agent-facing guide to this API, served at /skill/ (see README "Skill endpoint").
 // Written for an AI agent reader: task-oriented, exact request shapes, honest errors.
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
 description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (prefer MP3) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
-version: 0.3.1
+version: 0.3.2
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
@@ -122,14 +143,16 @@ voice output. Use WAV only when a consumer specifically needs uncompressed PCM.
 
 Request fields:
 
-- `model`: speech model id discovered from `GET /v1/models`.
+- `model`: speech model id discovered from `GET /v1/models`; omitted/empty defaults to `kokoro-82m`. Explicit model ids are always honored.
 - `input`: text to speak.
-- `voice`: id discovered from `GET /v1/voices?model=<model-id>`.
+- `voice`: id discovered from `GET /v1/voices?model=<model-id>`. If the id is unavailable for the selected model, ChimpFlow uses that model's default voice instead of failing.
 - `response_format`: `mp3` (recommended) or `wav`.
 
-MP3 returns `Content-Type: audio/mpeg`; WAV returns `audio/wav` (PCM 16-bit
-mono 24 kHz for pocket-tts). Unsupported formats return 400. ChimpFlow performs
-MP3 encoding locally with ffmpeg. Extra engine-specific fields pass through.
+MP3 returns `Content-Type: audio/mpeg`; WAV returns `audio/wav`. Successful
+responses include `X-ChimpFlow-Model` with the effective model. When an unknown
+voice was replaced by the model default, `X-ChimpFlow-Voice-Fallback` contains
+the URL-encoded originally requested voice id. Unsupported formats return 400. ChimpFlow
+performs MP3 encoding locally with ffmpeg. Extra engine-specific fields pass through.
 
 ### Short speech vs. a whole chapter
 
@@ -220,7 +243,7 @@ The WebUI uses the bootstrap master key. Agent keys cannot include `admin`.
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
   "description": "Local authenticated text-to-speech (prefer MP3) and speech-to-text for agents; no cloud.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "base_url": "http://127.0.0.1:8090",
   "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "agent_scopes": ["tts", "stt"], "master_scope": "admin"},
   "recommended_audio_format": "mp3",
@@ -351,10 +374,38 @@ int main() {
             }
         }
 
+        auto engineJson = requestJson;
+        std::optional<std::string> voiceFallback;
+        if (engineJson.is_object()) {
+            if (!engineJson.contains("model") ||
+                (engineJson["model"].is_string() && engineJson["model"].get<std::string>().empty())) {
+                engineJson["model"] = kDefaultTtsModel;
+            }
+            if (engineJson["model"].is_string() && engineJson.contains("voice") &&
+                engineJson["voice"].is_string()) {
+                const auto model = engineJson["model"].get<std::string>();
+                const auto requestedVoice = engineJson["voice"].get<std::string>();
+                if (!requestedVoice.empty()) {
+                    const auto voices = engineVoiceIds(cfgEngineBase, model);
+                    if (voices && std::ranges::find(*voices, requestedVoice) == voices->end()) {
+                        std::cerr << "[chimpflow] Voice '" << Utils::urlEncode(requestedVoice)
+                                  << "' is unavailable for model '" << model
+                                  << "'; using the model default voice\n";
+                        voiceFallback = requestedVoice;
+                        engineJson.erase("voice");
+                    }
+                }
+            }
+        }
+        const std::string effectiveModel = engineJson.is_object() && engineJson["model"].is_string()
+            ? engineJson["model"].get<std::string>() : std::string();
+
         ClientConfig engineClientConfig;
         engineClientConfig.request_timeout = std::chrono::seconds{180};
 
         auto sendAudio = [&](std::span<const std::uint8_t> wav) {
+            if (!effectiveModel.empty()) resp.setHeader("X-ChimpFlow-Model", effectiveModel);
+            if (voiceFallback) resp.setHeader("X-ChimpFlow-Voice-Fallback", Utils::urlEncode(*voiceFallback));
             if (wantsMp3) {
                 try {
                     auto mp3 = chimpflow::encodeMp3(wav, cfgFfmpeg);
@@ -376,6 +427,7 @@ int main() {
         const bool hasText = !requestJson.is_discarded() && requestJson.is_object() &&
                              requestJson.contains("input") && requestJson["input"].is_string();
         if (!hasText) {
+            if (engineJson.is_object()) engineBody = engineJson.dump();
             ClientRequest fwd;
             fwd.method("POST").url(cfgEngineBase + "/v1/audio/speech")
                .header("Content-Type", "application/json").body(engineBody);
@@ -403,7 +455,6 @@ int main() {
                 R"({"error":"long-form input requires too many speech chunks"})");
         }
 
-        auto engineJson = requestJson;
         engineJson["response_format"] = "wav";
         chimpflow::WavJoiner joiner;
         for (std::size_t i = 0; i < chunks.size(); ++i) {

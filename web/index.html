@@ -103,7 +103,7 @@
   <span class="dot" id="statusDot" aria-hidden="true"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted badge" title="UI build version">v0.3.1</span>
+  <span class="muted badge" title="UI build version">v0.3.2</span>
   <span class="spacer"></span>
   <button id="logoutBtn" class="hidden" type="button">Sign out</button>
 </header>
@@ -297,6 +297,10 @@ MP3 is much smaller and is the recommended format for agent voice output.
     -o speech.mp3
 
 Use model and voice IDs returned by discovery rather than assuming the examples.
+If model is omitted or empty, ChimpFlow uses kokoro-82m. Explicit model ids are
+honored. If the requested voice does not exist for that model, ChimpFlow uses
+the model default voice instead of failing. X-ChimpFlow-Model confirms the
+effective model; X-ChimpFlow-Voice-Fallback reports the URL-encoded replaced voice id.
 MP3 returns Content-Type audio/mpeg. For WAV, set response_format to wav and
 save as speech.wav; the response Content-Type is audio/wav.
 
@@ -452,7 +456,7 @@ async function loadModels() {
     const previousModel = modelSelect.value;
     setSelectOptions(modelSelect, models);
     modelSelect.value = models.includes(previousModel) ? previousModel
-      : models.includes("pocket-tts") ? "pocket-tts" : models[0];
+      : models.includes("kokoro-82m") ? "kokoro-82m" : models[0];
     modelSelect.disabled = false;
     await loadVoices();
   } catch (error) {

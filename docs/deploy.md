@@ -89,6 +89,8 @@ than exposing it without authentication.
 
 For the model-aware WebUI, define every selectable voice in each model's
 `voice_presets` object in `engine/server.json`, and choose one as the default.
+The gateway's omitted-model default is `kokoro-82m`, so that model must be
+configured before deploying the default/fallback behavior.
 PocketTTS and Kokoro use built-in `voice_id` values:
 
 ```json
