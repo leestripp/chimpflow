@@ -26,7 +26,7 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
   model-aware MP3/WAV TTS test bench, Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.3.3`) so a stale cached page is self-evident
+  badge (currently `v0.3.4`) so a stale cached page is self-evident
 - **One-time secret copying** — the generate-key area has **Copy new secret
   key** for the newly created `rawKey`; existing rows have no Copy ID action
 - **Bootstrap master key** printed once on first run and protected from revoke/delete
@@ -127,6 +127,14 @@ curl -X POST http://127.0.0.1:8090/v1/audio/speech \
 ```
 
 ### Default model and voice compatibility
+
+Model guide (query `/v1/models` for what each host actually has):
+
+- **`kokoro-82m`** — default for everyday agents and small/phone-oriented deployments; approximately 212 MB in BF16.
+- **`chatterbox`** — specialist choice for high-end narration, video voiceovers, and quality-critical work. Q8 is approximately 2.09 GB and needs substantially more runtime RAM/VRAM and compute. It uses reference-WAV voice presets.
+- **`pocket-tts`** — legacy compatibility only; not recommended for new work because of intermittent garbled output.
+
+Model file size is not total runtime memory usage.
 
 Requests that omit `model` (or send an empty model) use **`kokoro-82m`**.
 Explicit model ids are honored. Before synthesis, ChimpFlow checks the requested

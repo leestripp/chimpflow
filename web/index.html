@@ -103,7 +103,7 @@
   <span class="dot" id="statusDot" aria-hidden="true"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted badge" title="UI build version">v0.3.3</span>
+  <span class="muted badge" title="UI build version">v0.3.4</span>
   <span class="spacer"></span>
   <button id="logoutBtn" class="hidden" type="button">Sign out</button>
 </header>
@@ -297,6 +297,14 @@ MP3 is much smaller and is the recommended format for agent voice output.
     -o speech.mp3
 
 Use model and voice IDs returned by discovery rather than assuming the examples.
+
+Choose the model from those actually returned by /v1/models:
+- kokoro-82m: default for everyday agent speech and small/phone-oriented deployments (about 212 MB for the BF16 model file).
+- chatterbox: specialist choice for high-end narration, video voiceovers, and quality-critical work when available. The Q8 model file is about 2.09 GB, roughly ten times Kokoro's, and runtime needs substantially more RAM/VRAM and compute. It supports reference-WAV voice cloning; use a voice id returned for this model.
+- pocket-tts: legacy compatibility only; not recommended for new work because of intermittent garbled output.
+
+Model file size is not total runtime memory. Do not default to Chatterbox on memory-constrained devices.
+
 If model is omitted or empty, ChimpFlow uses kokoro-82m. Explicit model ids are
 honored. If the requested voice does not exist for that model, ChimpFlow uses
 the model default voice instead of failing. X-ChimpFlow-Model confirms the

@@ -109,7 +109,7 @@ std::optional<std::vector<std::string>> engineVoiceIds(
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
 description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (prefer MP3) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
-version: 0.3.3
+version: 0.3.4
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
@@ -140,6 +140,15 @@ voice output. Use WAV only when a consumer specifically needs uncompressed PCM.
       -H "Content-Type: application/json" \
       -d '{"model":"kokoro-82m","input":"Hello world","voice":"af_heart","response_format":"mp3"}' \
       -o speech.mp3
+
+## Choose a TTS model
+
+Discover the models actually configured on this host with `GET /v1/models`.
+- `kokoro-82m`: default for everyday agent speech and small/phone-oriented deployments. The BF16 model file is about 212 MB.
+- `chatterbox`: specialist model for high-end narration, video voiceovers, and other quality-critical work when present on the host. Its Q8 model file is about 2.09 GB—roughly ten times Kokoro's file size—and it needs substantially more RAM/VRAM and compute. It supports reference-WAV voice cloning; use a voice id returned for this model.
+- `pocket-tts`: legacy compatibility only; not recommended for new work because of intermittent garbled output.
+
+The model file size is not the total runtime memory requirement. Do not make Chatterbox the default on memory-constrained devices.
 
 Request fields:
 
@@ -243,7 +252,7 @@ The WebUI uses the bootstrap master key. Agent keys cannot include `admin`.
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
   "description": "Local authenticated text-to-speech (prefer MP3) and speech-to-text for agents; no cloud.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "base_url": "http://127.0.0.1:8090",
   "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "agent_scopes": ["tts", "stt"], "master_scope": "admin"},
   "recommended_audio_format": "mp3",

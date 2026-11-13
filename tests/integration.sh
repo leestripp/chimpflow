@@ -145,7 +145,8 @@ page=$(curl -fsS "$BASE/")
 for needle in 'data-delete' 'data-restore' 'navigator.clipboard.writeText' 'document.execCommand("copy")' \
               'Copy new secret key' 'Copy instructions' 'PREFER MP3' 'MP3 (recommended)' '/permanent' \
               'Accepts long-form text' 'run long-form synthesis as a background process' \
-              'id="ttsModel"' 'loadModels()' '/v1/voices?model=' 'model, input:' 'v0.3.3'; do
+              'id="ttsModel"' 'loadModels()' '/v1/voices?model=' 'model, input:' \
+              'chatterbox' 'video voiceovers' 'v0.3.4'; do
   if printf '%s' "$page" | grep -qF "$needle"; then ok "WebUI control: $needle"
   else bad "WebUI control missing: $needle"; fi
 done
