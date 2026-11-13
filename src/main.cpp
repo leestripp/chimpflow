@@ -7,6 +7,7 @@
 #include "token/ApiKeyStore.h"
 #include "db/Database.h"
 #include "http/StaticHandler.h"
+#include "utils/Utils.h"
 #include "token/ApiKey.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -87,7 +88,7 @@ bool restoreKey(DB::Database& db, std::string_view keyId) {
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
 description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (prefer MP3) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
-version: 0.3.0
+version: 0.3.1
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
@@ -106,7 +107,7 @@ Every route except `/healthz`, `/skill/`, and the WebUI assets requires:
 Agent keys carry `tts` (speech) and/or `stt` (transcription). The human's
 bootstrap master key also has `admin` for key management. Ask the operator for
 an agent key; never request or use the master key for ordinary audio work.
-Any valid key can call `/v1/models` and `/v1/voices`.
+Any valid key can call `/v1/models` and `/v1/voices?model=<model-id>`.
 
 ## Text to speech — POST /v1/audio/speech (scope: tts)
 
@@ -121,9 +122,9 @@ voice output. Use WAV only when a consumer specifically needs uncompressed PCM.
 
 Request fields:
 
-- `model`: id discovered from `GET /v1/models` (currently `pocket-tts`).
+- `model`: speech model id discovered from `GET /v1/models`.
 - `input`: text to speak.
-- `voice`: id discovered from `GET /v1/voices`.
+- `voice`: id discovered from `GET /v1/voices?model=<model-id>`.
 - `response_format`: `mp3` (recommended) or `wav`.
 
 MP3 returns `Content-Type: audio/mpeg`; WAV returns `audio/wav` (PCM 16-bit
@@ -167,10 +168,11 @@ below the gateway's 24 MB request limit.
     curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" \
       http://127.0.0.1:8090/v1/models
     curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" \
-      http://127.0.0.1:8090/v1/voices
+      http://127.0.0.1:8090/v1/voices?model=pocket-tts
 
-Discover model and voice ids at runtime instead of hardcoding them. `/v1/voices`
-returns 503 if `CHIMPFLOW_VOICES_DIR` is not configured.
+Discover model and voice ids at runtime instead of hardcoding them. Request voices
+with the selected model id. The legacy unscoped `/v1/voices` WAV catalog returns
+503 if `CHIMPFLOW_VOICES_DIR` is not configured.
 
 ## Health and errors
 
@@ -191,7 +193,7 @@ Errors are JSON: `{"error":"human-readable message"}`.
 1. Store the key in `CHIMPFLOW_KEY` or a secrets manager, never source control.
 2. Use base URL `http://127.0.0.1:8090` on the machine where ChimpFlow runs.
    Do not expose the service or send its keys/text to a cloud service.
-3. Check `/healthz`, then discover `/v1/models` and `/v1/voices`.
+3. Check `/healthz`, discover `/v1/models`, then query `/v1/voices?model=<model-id>`.
 4. For speech, request `response_format: "mp3"` unless WAV is required.
 5. For immediate speech, self-split and use foreground requests. For one chapter
    file, post the whole text as a background process and wait for its automatic
@@ -218,7 +220,7 @@ The WebUI uses the bootstrap master key. Agent keys cannot include `admin`.
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
   "description": "Local authenticated text-to-speech (prefer MP3) and speech-to-text for agents; no cloud.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "base_url": "http://127.0.0.1:8090",
   "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "agent_scopes": ["tts", "stt"], "master_scope": "admin"},
   "recommended_audio_format": "mp3",
@@ -228,7 +230,7 @@ constexpr std::string_view kSkillManifest = R"CHIMP({
     {"method": "GET", "path": "/skill/", "auth": "none", "returns": "agent guide markdown"},
     {"method": "GET", "path": "/skill/manifest.json", "auth": "none"},
     {"method": "GET", "path": "/v1/models", "auth": "bearer", "notes": "any valid key"},
-    {"method": "GET", "path": "/v1/voices", "auth": "bearer", "notes": "any valid key"},
+    {"method": "GET", "path": "/v1/voices?model=<model-id>", "auth": "bearer", "notes": "any valid key; voices for the selected model"},
     {"method": "POST", "path": "/v1/audio/speech", "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "pocket-tts", "input": "text", "voice": "alba", "response_format": "mp3"}, "response_formats": {"mp3": "audio/mpeg (recommended)", "wav": "audio/wav"}, "notes": "automatic paragraph/sentence splitting and joined long-form output; use a background process for chapters"},
     {"method": "POST", "path": "/v1/audio/transcriptions", "auth": "bearer", "scope": "stt", "content_type": "multipart/form-data", "body": {"file": "@speech.mp3", "model": "whisper"}, "returns": "JSON transcription"},
     {"method": "GET", "path": "/admin/keys", "auth": "bearer", "scope": "admin"},
@@ -274,9 +276,9 @@ int main() {
     const std::string cfgSttBase    = envOr("CHIMPFLOW_STT_URL", kSttBase);
     const std::string cfgSttModel   = envOr("CHIMPFLOW_STT_MODEL", kSttModel);
     const std::string cfgFfmpeg     = envOr("CHIMPFLOW_FFMPEG", kFfmpeg);
-    // Voice catalog: dir of engine voice samples (*.wav). The engine has no
-    // voice-listing endpoint, so GET /v1/voices derives ids from these files.
-    // Empty/unset -> /v1/voices answers 503 with a configuration hint.
+    // Legacy unscoped voice catalog: dir of engine voice samples (*.wav).
+    // Model-scoped /v1/voices?model=<id> requests use the engine catalog.
+    // Empty/unset -> unscoped /v1/voices answers 503 with a configuration hint.
     const std::string cfgVoicesDir  = envOr("CHIMPFLOW_VOICES_DIR", "");
     std::cout << "[chimpflow] listen=" << cfgListenHost << ":" << cfgListenPort
               << " engine=" << cfgEngineBase
@@ -495,11 +497,10 @@ int main() {
         resp.setBody(r->bodyAsStringView());
     });
 
-    // Voice discovery: any valid key lists the voices the engine can speak.
-    // The engine (audio.cpp) has no voice-listing endpoint, so ids are the
-    // *.wav basenames in the operator-configured CHIMPFLOW_VOICES_DIR — the
-    // same names the engine resolves `voice` against.
-    server.get("/v1/voices", [&keys, &cfgVoicesDir](const Request& req, Response& resp) {
+    // Voice discovery: model-scoped requests use audio.cpp's catalog so
+    // built-in voices and reference-voice presets stay specific to the model.
+    // Keep the original WAV-directory response for unscoped legacy clients.
+    server.get("/v1/voices", [&keys, &cfgEngineBase, &cfgVoicesDir](const Request& req, Response& resp) {
         auto tok = bearerToken(req);
         if (tok.empty()) return sendJson(resp, StatusCode::UNAUTHORIZED,
             R"({"error":"missing Authorization: Bearer <api_key>"})");
@@ -508,6 +509,40 @@ int main() {
             nlohmann::json err = {{"error", "invalid api key: " + v.error}};
             return sendJson(resp, StatusCode::UNAUTHORIZED, err.dump());
         }
+
+        const auto modelId = req.queryParameter("model");
+        if (modelId && !modelId->empty()) {
+            ClientRequest fwd;
+            fwd.method("GET").url(cfgEngineBase + "/v1/audio/voices?model=" + Utils::urlEncode(*modelId));
+            auto r = Client::get_instance().send_blocking(fwd);
+            if (!r) return sendJson(resp, StatusCode::BAD_GATEWAY, R"({"error":"engine unreachable"})");
+            if (r->status() != StatusCode::OK) {
+                resp.setStatus(r->status());
+                resp.setContentType(r->header("Content-Type").empty()
+                                    ? "application/json" : r->header("Content-Type"));
+                resp.setBody(r->body());
+                return;
+            }
+
+            const auto engineJson = nlohmann::json::parse(r->bodyAsStringView(), nullptr, false);
+            if (engineJson.is_discarded() || !engineJson.contains("voices") ||
+                !engineJson["voices"].is_array()) {
+                return sendJson(resp, StatusCode::BAD_GATEWAY,
+                    R"({"error":"engine returned an invalid voice catalog"})");
+            }
+            nlohmann::json data = nlohmann::json::array();
+            for (const auto& voice : engineJson["voices"]) {
+                if (!voice.is_string() || voice.get<std::string>().empty()) {
+                    return sendJson(resp, StatusCode::BAD_GATEWAY,
+                        R"({"error":"engine returned an invalid voice catalog"})");
+                }
+                data.push_back({{"id", voice}, {"object", "voice"}, {"owned_by", "engine"}});
+            }
+            nlohmann::json out = {{"object", "list"}, {"data", std::move(data)}};
+            sendJson(resp, StatusCode::OK, out.dump());
+            return;
+        }
+
         if (cfgVoicesDir.empty())
             return sendJson(resp, StatusCode::SERVICE_UNAVAILABLE,
                 R"({"error":"voices not configured: set CHIMPFLOW_VOICES_DIR in chimpflow.env"})");
@@ -706,7 +741,7 @@ int main() {
               << "  /healthz            (open)\n"
               << "  /skill/             (open — agent guide, markdown + manifest.json)\n"
               << "  /v1/models         (Bearer key, any valid)\n"
-              << "  /v1/voices         (Bearer key, any valid)\n"
+              << "  /v1/voices?model=<id> (Bearer key, any valid)\n"
               << "  /v1/audio/speech    (Bearer key, 'tts' scope)\n"
               << "  /v1/audio/transcriptions (Bearer key, 'stt' scope)\n"
               << "  /admin/engine/stt   (Bearer key, 'admin' scope)\n"

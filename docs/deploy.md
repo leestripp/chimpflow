@@ -87,6 +87,26 @@ restart `chimpflow-tts`. The service binds localhost by default, so the WebUI
 is at `http://127.0.0.1:8090` on ubuntu-pc; use SSH port forwarding rather
 than exposing it without authentication.
 
+For the model-aware WebUI, define every selectable voice in each model's
+`voice_presets` object in `engine/server.json`, and choose one as the default.
+PocketTTS and Kokoro use built-in `voice_id` values:
+
+```json
+{
+  "id": "pocket-tts",
+  "default_voice_preset": "alba",
+  "voice_presets": {
+    "alba": { "voice_id": "alba" },
+    "cosette": { "voice_id": "cosette" }
+  }
+}
+```
+
+Chatterbox presets instead use an absolute `voice_ref` path to each reference
+WAV. Model-scoped `GET /v1/voices?model=<id>` reads these engine presets; the
+legacy unscoped `/v1/voices` URL still derives names from
+`CHIMPFLOW_VOICES_DIR`.
+
 ## Updating
 
 ```bash

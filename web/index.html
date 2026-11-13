@@ -103,7 +103,7 @@
   <span class="dot" id="statusDot" aria-hidden="true"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted badge" title="UI build version">v0.3.0</span>
+  <span class="muted badge" title="UI build version">v0.3.1</span>
   <span class="spacer"></span>
   <button id="logoutBtn" class="hidden" type="button">Sign out</button>
 </header>
@@ -168,8 +168,12 @@
       <textarea id="ttsText" spellcheck="true" placeholder="Paste a sentence, paragraph, or full chapter here…">Hello from the ChimpFlow voice service.</textarea>
       <div class="row top-gap">
         <div class="grow">
+          <label for="ttsModel">Model</label>
+          <select id="ttsModel" disabled><option value="">Loading models…</option></select>
+        </div>
+        <div class="grow">
           <label for="ttsVoice">Voice</label>
-          <select id="ttsVoice"><option value="alba">alba</option></select>
+          <select id="ttsVoice" disabled><option value="">Select a model first</option></select>
         </div>
         <div class="compact">
           <label for="ttsFormat">Audio format</label>
@@ -178,7 +182,7 @@
             <option value="wav">WAV (uncompressed)</option>
           </select>
         </div>
-        <button class="primary" id="speakBtn" type="button">Speak</button>
+        <button class="primary" id="speakBtn" type="button" disabled>Speak</button>
       </div>
       <div id="ttsResult"></div>
       <div class="msg" id="ttsMsg" role="status" aria-live="polite"></div>
@@ -217,6 +221,7 @@ const store = {
 };
 let newRawKey = "";
 let currentAudioUrl = "";
+let voiceLoadGeneration = 0;
 
 function reportUnexpected(context, error) {
   console.error(context, error);
@@ -278,7 +283,7 @@ Every API request needs:
 Check the service and discover current model/voice IDs:
   curl -fsS ${window.location.origin}/healthz
   curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/models
-  curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/voices
+  curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/voices?model=pocket-tts
 
 ## 2. Text to speech — PREFER MP3
 
@@ -403,7 +408,7 @@ async function tryConnect() {
     $("loginCard").classList.add("hidden");
     $("app").classList.remove("hidden");
     $("logoutBtn").classList.remove("hidden");
-    await Promise.all([loadKeys(), loadVoices()]);
+    await Promise.all([loadKeys(), loadModels()]);
     try {
       await ping();
     } catch (error) {
@@ -417,20 +422,78 @@ async function tryConnect() {
   }
 }
 
-async function loadVoices() {
+function setSelectOptions(select, values) {
+  select.replaceChildren(...values.map(value => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    return option;
+  }));
+}
+
+function setSelectPlaceholder(select, text) {
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = text;
+  select.replaceChildren(option);
+  select.disabled = true;
+}
+
+async function loadModels() {
+  const modelSelect = $("ttsModel");
   try {
-    const response = await api("/v1/voices");
+    const response = await api("/v1/models");
     const body = await response.json();
-    const voices = Array.isArray(body.data) ? body.data.map(voice => voice.id).filter(Boolean) : [];
-    if (!voices.length) return;
-    $("ttsVoice").replaceChildren(...voices.map(voice => {
-      const option = document.createElement("option");
-      option.value = voice;
-      option.textContent = voice;
-      return option;
-    }));
+    const models = Array.isArray(body.data) ? body.data
+      .filter(model => typeof model.id === "string" && model.id &&
+        (!model.task || model.task === "tts" || model.task === "clon"))
+      .map(model => model.id) : [];
+    if (!models.length) throw new Error("No speech models are configured");
+    const previousModel = modelSelect.value;
+    setSelectOptions(modelSelect, models);
+    modelSelect.value = models.includes(previousModel) ? previousModel
+      : models.includes("pocket-tts") ? "pocket-tts" : models[0];
+    modelSelect.disabled = false;
+    await loadVoices();
   } catch (error) {
-    reportUnexpected("Voice catalog unavailable; retaining fallback", error);
+    voiceLoadGeneration++;
+    setSelectPlaceholder(modelSelect, "Models unavailable");
+    setSelectPlaceholder($("ttsVoice"), "Select a model first");
+    $("speakBtn").disabled = true;
+    showMsg($("ttsMsg"), error.message, false);
+  }
+}
+
+async function loadVoices() {
+  const generation = ++voiceLoadGeneration;
+  const model = $("ttsModel").value;
+  const voiceSelect = $("ttsVoice");
+  const previousVoice = voiceSelect.value;
+  if (!model) {
+    setSelectPlaceholder(voiceSelect, "Select a model first");
+    $("speakBtn").disabled = true;
+    return;
+  }
+  setSelectPlaceholder(voiceSelect, "Loading voices…");
+  $("speakBtn").disabled = true;
+  try {
+    const response = await api("/v1/voices?model=" + encodeURIComponent(model));
+    const body = await response.json();
+    const voices = Array.isArray(body.data) ? body.data
+      .map(voice => voice.id)
+      .filter(id => typeof id === "string" && id) : [];
+    if (generation !== voiceLoadGeneration) return;
+    if (!voices.length) throw new Error("No voices are configured for " + model);
+    setSelectOptions(voiceSelect, voices);
+    if (voices.includes(previousVoice)) voiceSelect.value = previousVoice;
+    voiceSelect.disabled = false;
+    $("speakBtn").disabled = false;
+    showMsg($("ttsMsg"), voices.length + " voices available for " + model, true);
+  } catch (error) {
+    if (generation !== voiceLoadGeneration) return;
+    setSelectPlaceholder(voiceSelect, "Voices unavailable");
+    $("speakBtn").disabled = true;
+    showMsg($("ttsMsg"), error.message, false);
   }
 }
 
@@ -562,6 +625,12 @@ async function loadStatus() {
 async function synthesize() {
   const button = $("speakBtn");
   const format = $("ttsFormat").value;
+  const model = $("ttsModel").value;
+  const voice = $("ttsVoice").value;
+  if (!model || !voice) {
+    showMsg($("ttsMsg"), "Select a model and voice first", false);
+    return;
+  }
   const longForm = $("ttsText").value.length > 1200;
   button.disabled = true;
   showMsg($("ttsMsg"), longForm
@@ -569,8 +638,8 @@ async function synthesize() {
     : "Synthesizing " + format.toUpperCase() + "…", true);
   try {
     const response = await api("/v1/audio/speech", { method:"POST", body:JSON.stringify({
-      model:"pocket-tts", input:$("ttsText").value,
-      voice:$("ttsVoice").value, response_format:format }) });
+      model, input:$("ttsText").value,
+      voice, response_format:format }) });
     const chunkCount = response.headers.get("X-ChimpFlow-Text-Chunks");
     const blob = await response.blob();
     if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
@@ -597,7 +666,7 @@ async function synthesize() {
   } catch (error) {
     showMsg($("ttsMsg"), error.message, false);
   } finally {
-    button.disabled = false;
+    button.disabled = $("ttsVoice").disabled || !$("ttsModel").value || !$("ttsVoice").value;
   }
 }
 
@@ -623,6 +692,8 @@ $("copyNewKeyBtn").addEventListener("click", () => copyText(newRawKey, $("keysMs
 $("copyInstructionsBtn").addEventListener("click", () => copyText(agentInstructions(), $("instructionsMsg"), "Agent instructions")
   .catch(error => reportUnexpected("Instruction copy failed", error)));
 $("speakBtn").addEventListener("click", () => synthesize().catch(error => reportUnexpected("Speech failed", error)));
+$("ttsModel").addEventListener("change", () => loadVoices()
+  .catch(error => reportUnexpected("Voice load failed", error)));
 window.addEventListener("pagehide", () => { if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl); });
 
 async function boot() {

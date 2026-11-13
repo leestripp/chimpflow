@@ -37,6 +37,10 @@ expect "GET /healthz" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/healt
 expect "no key -> 401" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/v1/audio/speech" -H 'Content-Type: application/json' -d '{}')"
 expect "bad key -> 401" 401 "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer omn_sk_invalid_000000_deadbeef' "$BASE/v1/models")"
 expect "GET /v1/models" 200 "$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "$BASE/v1/models")"
+expect "model-scoped voices -> 200" 200 "$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "$BASE/v1/voices?model=pocket-tts")"
+if curl -fsS "${AUTH[@]}" "$BASE/v1/voices?model=pocket-tts" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("object") == "list" and d.get("data") and all(v.get("id") for v in d["data"])' 2>/dev/null
+then ok "model-scoped voices use the ChimpFlow list shape"; else bad "model-scoped voice response malformed or empty"; fi
+expect "legacy unscoped voices -> 200" 200 "$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "$BASE/v1/voices")"
 expect "unsupported audio format -> 400" 400 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/v1/audio/speech" "${AUTH[@]}" -H 'Content-Type: application/json' -d '{"model":"pocket-tts","input":"bad format","voice":"alba","response_format":"flac"}')"
 
 code=$(curl -s -o "$wav" -w '%{http_code}' -X POST "$BASE/v1/audio/speech" "${AUTH[@]}" \
@@ -132,7 +136,8 @@ fi
 page=$(curl -fsS "$BASE/")
 for needle in 'data-delete' 'data-restore' 'navigator.clipboard.writeText' 'document.execCommand("copy")' \
               'Copy new secret key' 'Copy instructions' 'PREFER MP3' 'MP3 (recommended)' '/permanent' \
-              'Accepts long-form text' 'run long-form synthesis as a background process' 'v0.3.0'; do
+              'Accepts long-form text' 'run long-form synthesis as a background process' \
+              'id="ttsModel"' 'loadModels()' '/v1/voices?model=' 'model, input:' 'v0.3.1'; do
   if printf '%s' "$page" | grep -qF "$needle"; then ok "WebUI control: $needle"
   else bad "WebUI control missing: $needle"; fi
 done

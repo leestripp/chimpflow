@@ -87,12 +87,14 @@ MP3. Agent rows expose **Revoke** when active and **Restore** plus confirmed
 **Delete** when revoked. The bootstrap master is marked and protected from
 revoke/delete; `admin` cannot be granted to generated agent keys.
 
-The TTS tab loads voices from `/v1/voices`, defaults to **MP3 (recommended)**,
-and also offers WAV, with playback and download. A 360px chapter editor and
+The TTS tab loads speech models from `/v1/models`, then loads the selected
+model's voices from `/v1/voices?model=<id>`. Changing models reloads the voice
+list, and synthesis uses both selected ids. It defaults to **MP3 (recommended)**,
+also offers WAV, and provides playback and download. A 360px chapter editor and
 long-form notice explain automatic splitting/joining; autoplay remains enabled
 and starts only after the complete file is ready. Status has one full card per
 engine (`audio.cpp` and `whisper.cpp`) with endpoint, reachability, and model.
-The header badge is `v0.3.0`; `index.html` is served with
+The header badge is `v0.3.1`; `index.html` is served with
 `Cache-Control: no-cache`. The master key lives in `localStorage`
 (localhost-only trade-off). Clipboard actions cover the one-time secret and
 agent instructions; existing secrets are never reconstructed and there is no
@@ -216,7 +218,7 @@ re-running `install.sh` after web changes.
   (compiled default `kSttModel`).
 - WebUI changes require re-running `install.sh` to reach the served copy.
 - **Bump the header badge on every WebUI change** (`web/index.html`, currently
-  `v0.3.0`). The badge + `no-cache` exist because heuristic browser caching
+  `v0.3.1`). The badge + `no-cache` exist because heuristic browser caching
   showed a user a pre-fix page for hours while `curl` proved the server was
   correct. Verify UI complaints at three layers: served bytes (`curl`), a
   fresh-browser render, and the request log

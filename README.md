@@ -23,10 +23,10 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
   bootstrap master also has `admin`. Keys are hashed at rest in sqlite, with per-key
   use counts, revoke/restore/permanent-delete lifecycle, and expiration support
 - **WebUI** at `/` — master-key-protected key management, copyable agent instructions,
-  MP3/WAV TTS test bench (26 voices), Status tab with
+  model-aware MP3/WAV TTS test bench, Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.3.0`) so a stale cached page is self-evident
+  badge (currently `v0.3.1`) so a stale cached page is self-evident
 - **One-time secret copying** — the generate-key area has **Copy new secret
   key** for the newly created `rawKey`; existing rows have no Copy ID action
 - **Bootstrap master key** printed once on first run and protected from revoke/delete
@@ -103,7 +103,7 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 |---|---|---|
 | `GET /healthz` | none | liveness |
 | `GET /v1/models` | any valid key | engine model list (proxied) |
-| `GET /v1/voices` | any valid key | voice catalog (`CHIMPFLOW_VOICES_DIR` `*.wav` basenames; 503 if unconfigured) |
+| `GET /v1/voices?model=<id>` | any valid key | voices for the selected engine model; legacy unscoped URL lists `CHIMPFLOW_VOICES_DIR` WAV basenames |
 | `POST /v1/audio/transcriptions` | `stt` scope | STT, multipart `file` forwarded to whisper.cpp (`{"text":"..."}`) |
 | `GET /skill/` + `/skill/manifest.json` | none | agent guide: how an AI agent should use this API (markdown + JSON twin) |
 | `POST /v1/audio/speech` | `tts` scope | TTS with `response_format: "mp3"` (recommended) or `"wav"`; MP3 encoded locally by ffmpeg |
