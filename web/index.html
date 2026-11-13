@@ -103,7 +103,7 @@
   <span class="dot" id="statusDot" aria-hidden="true"></span>
   <h1>ChimpFlow</h1>
   <span class="muted" id="statusText">voice service</span>
-  <span class="muted badge" title="UI build version">v0.3.2</span>
+  <span class="muted badge" title="UI build version">v0.3.3</span>
   <span class="spacer"></span>
   <button id="logoutBtn" class="hidden" type="button">Sign out</button>
 </header>
@@ -283,7 +283,7 @@ Every API request needs:
 Check the service and discover current model/voice IDs:
   curl -fsS ${window.location.origin}/healthz
   curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/models
-  curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/voices?model=pocket-tts
+  curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" ${window.location.origin}/v1/voices?model=kokoro-82m
 
 ## 2. Text to speech — PREFER MP3
 
@@ -293,7 +293,7 @@ MP3 is much smaller and is the recommended format for agent voice output.
   curl -fsS -X POST ${window.location.origin}/v1/audio/speech \\
     -H "Authorization: Bearer $CHIMPFLOW_KEY" \\
     -H "Content-Type: application/json" \\
-    -d '{"model":"pocket-tts","input":"Hello from my agent.","voice":"alba","response_format":"mp3"}' \\
+    -d '{"model":"kokoro-82m","input":"Hello from my agent.","voice":"af_heart","response_format":"mp3"}' \\
     -o speech.mp3
 
 Use model and voice IDs returned by discovery rather than assuming the examples.

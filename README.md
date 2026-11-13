@@ -26,7 +26,7 @@ client ──HTTP──▶│  ChimpFlow (OmniNet) ──HTTP──▶ whisper.c
   model-aware MP3/WAV TTS test bench, Status tab with
   **one card per engine**: an `audio.cpp` card (TTS) and a `whisper.cpp` card (STT),
   each showing endpoint, reachability, and loaded model; the header carries a build
-  badge (currently `v0.3.2`) so a stale cached page is self-evident
+  badge (currently `v0.3.3`) so a stale cached page is self-evident
 - **One-time secret copying** — the generate-key area has **Copy new secret
   key** for the newly created `rawKey`; existing rows have no Copy ID action
 - **Bootstrap master key** printed once on first run and protected from revoke/delete
@@ -122,7 +122,7 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 curl -X POST http://127.0.0.1:8090/v1/audio/speech \
   -H "Authorization: Bearer omn_sk_..." \
   -H "Content-Type: application/json" \
-  -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"mp3"}' \
+  -d '{"model":"kokoro-82m","input":"Hello world","voice":"af_heart","response_format":"mp3"}' \
   -o out.mp3
 ```
 

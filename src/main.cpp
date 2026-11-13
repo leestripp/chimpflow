@@ -109,7 +109,7 @@ std::optional<std::vector<std::string>> engineVoiceIds(
 constexpr std::string_view kSkillMd = R"CHIMP(---
 name: chimpflow-tts
 description: Local text-to-speech AND speech-to-text for AI agents on this machine. Use whenever a task needs spoken audio (prefer MP3) or audio transcription. Runs on localhost, no cloud, OpenAI-compatible endpoints.
-version: 0.3.2
+version: 0.3.3
 service: chimpflow
 base_url: http://127.0.0.1:8090
 ---
@@ -138,7 +138,7 @@ voice output. Use WAV only when a consumer specifically needs uncompressed PCM.
     curl -fsS -X POST http://127.0.0.1:8090/v1/audio/speech \
       -H "Authorization: Bearer $CHIMPFLOW_KEY" \
       -H "Content-Type: application/json" \
-      -d '{"model":"pocket-tts","input":"Hello world","voice":"alba","response_format":"mp3"}' \
+      -d '{"model":"kokoro-82m","input":"Hello world","voice":"af_heart","response_format":"mp3"}' \
       -o speech.mp3
 
 Request fields:
@@ -191,7 +191,7 @@ below the gateway's 24 MB request limit.
     curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" \
       http://127.0.0.1:8090/v1/models
     curl -fsS -H "Authorization: Bearer $CHIMPFLOW_KEY" \
-      http://127.0.0.1:8090/v1/voices?model=pocket-tts
+      http://127.0.0.1:8090/v1/voices?model=kokoro-82m
 
 Discover model and voice ids at runtime instead of hardcoding them. Request voices
 with the selected model id. The legacy unscoped `/v1/voices` WAV catalog returns
@@ -243,7 +243,7 @@ The WebUI uses the bootstrap master key. Agent keys cannot include `admin`.
 constexpr std::string_view kSkillManifest = R"CHIMP({
   "name": "chimpflow-tts",
   "description": "Local authenticated text-to-speech (prefer MP3) and speech-to-text for agents; no cloud.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "base_url": "http://127.0.0.1:8090",
   "auth": {"type": "bearer", "header": "Authorization", "prefix": "Bearer ", "agent_scopes": ["tts", "stt"], "master_scope": "admin"},
   "recommended_audio_format": "mp3",
