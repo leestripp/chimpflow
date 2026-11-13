@@ -263,7 +263,7 @@ constexpr std::string_view kSkillManifest = R"CHIMP({
     {"method": "GET", "path": "/skill/manifest.json", "auth": "none"},
     {"method": "GET", "path": "/v1/models", "auth": "bearer", "notes": "any valid key"},
     {"method": "GET", "path": "/v1/voices?model=<model-id>", "auth": "bearer", "notes": "any valid key; voices for the selected model"},
-    {"method": "POST", "path": "/v1/audio/speech", "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "pocket-tts", "input": "text", "voice": "alba", "response_format": "mp3"}, "response_formats": {"mp3": "audio/mpeg (recommended)", "wav": "audio/wav"}, "notes": "automatic paragraph/sentence splitting and joined long-form output; use a background process for chapters"},
+    {"method": "POST", "path": "/v1/audio/speech", "auth": "bearer", "scope": "tts", "content_type": "application/json", "body": {"model": "kokoro-82m", "input": "text", "voice": "af_heart", "response_format": "mp3"}, "response_formats": {"mp3": "audio/mpeg (recommended)", "wav": "audio/wav"}, "notes": "automatic paragraph/sentence splitting and joined long-form output; use a background process for chapters"},
     {"method": "POST", "path": "/v1/audio/transcriptions", "auth": "bearer", "scope": "stt", "content_type": "multipart/form-data", "body": {"file": "@speech.mp3", "model": "whisper"}, "returns": "JSON transcription"},
     {"method": "GET", "path": "/admin/keys", "auth": "bearer", "scope": "admin"},
     {"method": "POST", "path": "/admin/keys", "auth": "bearer", "scope": "admin", "body": {"name": "agent-name", "scopes": ["tts", "stt"]}, "notes": "agent scopes only; rawKey returned once; scopes default to tts+stt"},

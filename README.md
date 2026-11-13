@@ -99,6 +99,11 @@ The audio.cpp engine must be running on `127.0.0.1:8080` (see
 
 ## API
 
+**Integrating an application?** Start with
+[`docs/app-integration.md`](docs/app-integration.md) for the v0.3.4 migration
+checklist, model/voice discovery, fallback headers, compatibility notes, and
+smoke tests.
+
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /healthz` | none | liveness |
